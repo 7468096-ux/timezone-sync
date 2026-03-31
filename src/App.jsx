@@ -123,7 +123,7 @@ export default function App() {
       const belgH = Math.round(x * 24);
       const p = people.find(pp => pp.id === dragging.pid);
       if (!p) return;
-      const localH = ((belgH + getOffset(p.tz) - getOffset("Europe/Belgrade")) % 24 + 24) % 24;
+      const localH = ((belgH + getOffset(p.tz) - getOffset(userTZ)) % 24 + 24) % 24;
       setPeople(prev => prev.map(pp => {
         if (pp.id !== dragging.pid) return pp;
         if (dragging.side === "start") return { ...pp, workStart: Math.min(localH, pp.workEnd - 1) };
@@ -141,9 +141,22 @@ export default function App() {
       window.removeEventListener("touchmove", move);
       window.removeEventListener("touchend", up);
     };
-  }, [dragging, people]);
+  }, [dragging, people, userTZ]);
 
-  const belgOff = getOffset("Europe/Belgrade");
+  const userTZ = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return "Europe/Belgrade";
+    }
+  }, []);
+
+  const userCity = useMemo(() => {
+    const parts = userTZ.split("/");
+    return parts[parts.length - 1].replace(/_/g, " ");
+  }, [userTZ]);
+
+  const refOffset = getOffset(userTZ);
 
   const enriched = useMemo(() =>
     people.map(p => ({ ...p, time: getTimeInTZ(p.tz), offset: getOffset(p.tz) })),
@@ -153,13 +166,13 @@ export default function App() {
   const golden = useMemo(() => {
     let ls = -Infinity, ee = Infinity;
     enriched.forEach(p => {
-      const bs = p.workStart + (belgOff - p.offset);
-      const be = p.workEnd + (belgOff - p.offset);
+      const bs = p.workStart + (refOffset - p.offset);
+      const be = p.workEnd + (refOffset - p.offset);
       if (bs > ls) ls = bs;
       if (be < ee) ee = be;
     });
     return ee > ls ? { start: ls, end: ee } : null;
-  }, [enriched, belgOff]);
+  }, [enriched, refOffset]);
 
   const removePerson = (id) => people.length > 1 && setPeople(p => p.filter(x => x.id !== id));
 
@@ -206,10 +219,10 @@ export default function App() {
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontFamily: mono, fontSize: "26px", fontWeight: 700, color: "#f0c050", letterSpacing: "-1px", lineHeight: 1 }}>
-            {now.toLocaleTimeString("en-GB", { timeZone: "Europe/Belgrade", hour: "2-digit", minute: "2-digit" })}
+            {now.toLocaleTimeString("en-GB", { timeZone: userTZ, hour: "2-digit", minute: "2-digit" })}
           </div>
           <div style={{ fontFamily: mono, fontSize: "9px", color: "#3a3530", marginTop: "3px" }}>
-            {now.toLocaleDateString("ru-RU", { timeZone: "Europe/Belgrade", weekday: "short", day: "numeric", month: "short" })}
+            {now.toLocaleDateString(undefined, { timeZone: userTZ, weekday: "short", day: "numeric", month: "short" })}
           </div>
         </div>
       </div>
@@ -250,14 +263,14 @@ export default function App() {
             <div style={{ fontSize: "16px", fontWeight: 500 }}>
               {fmtH(Math.ceil(golden.start))} — {fmtH(Math.floor(golden.end))}
               <span style={{ fontSize: "11px", color: "#5a554f", marginLeft: "10px", fontWeight: 300 }}>
-                по Белграду · {Math.max(0, Math.floor(golden.end) - Math.ceil(golden.start))}ч
+                по {userCity} · {Math.max(0, Math.floor(golden.end) - Math.ceil(golden.start))}ч
               </span>
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
             {enriched.map(p => {
-              const ls = ((Math.ceil(golden.start) + (p.offset - belgOff)) % 24 + 24) % 24;
-              const le = ((Math.floor(golden.end) + (p.offset - belgOff)) % 24 + 24) % 24;
+              const ls = ((Math.ceil(golden.start) + (p.offset - refOffset)) % 24 + 24) % 24;
+              const le = ((Math.floor(golden.end) + (p.offset - refOffset)) % 24 + 24) % 24;
               return <div key={p.id} style={{ fontFamily: mono, fontSize: "9px", color: "#4a4540" }}>{p.emoji} {fmtH(ls)}–{fmtH(le)}</div>;
             })}
           </div>
@@ -290,8 +303,8 @@ export default function App() {
 
         {/* Person rows */}
         {enriched.map((p, idx) => {
-          const wsBelg = ((p.workStart + (belgOff - p.offset)) % 24 + 24) % 24;
-          const weBelg = ((p.workEnd + (belgOff - p.offset)) % 24 + 24) % 24;
+          const wsBelg = ((p.workStart + (refOffset - p.offset)) % 24 + 24) % 24;
+          const weBelg = ((p.workEnd + (refOffset - p.offset)) % 24 + 24) % 24;
           return (
             <div key={p.id} style={{
               display: "grid", gridTemplateColumns: "minmax(130px, 170px) 1fr",
@@ -346,7 +359,7 @@ export default function App() {
                 onMouseLeave={() => !dragging && setHoveredHour(null)}
               >
                 {Array.from({ length: 24 }, (_, i) => {
-                  const lh = ((i + (p.offset - belgOff)) % 24 + 24) % 24;
+                  const lh = ((i + (p.offset - refOffset)) % 24 + 24) % 24;
                   const isW = lh >= p.workStart && lh < p.workEnd;
                   const isG = golden && i >= Math.ceil(golden.start) && i < Math.floor(golden.end);
                   const isNow = Math.floor(p.time.decimal) === Math.floor(lh);
@@ -407,21 +420,23 @@ export default function App() {
         })}
 
         {/* Hover tooltip */}
-        {hoveredHour !== null && !dragging && (
-          <div style={{
-            display: "grid", gridTemplateColumns: "minmax(130px, 170px) 1fr",
-            marginTop: "5px", animation: "fadeIn 0.12s ease",
-          }}>
-            <div style={{ fontFamily: mono, fontSize: "9px", color: "#4a4540" }}>{fmtH(hoveredHour)} Belgrade</div>
-            <div style={{ display: "flex", gap: "10px", fontFamily: mono, fontSize: "9px", color: "#3a3530", flexWrap: "wrap" }}>
-              {enriched.map(p => {
-                const lh = ((hoveredHour + (p.offset - belgOff)) % 24 + 24) % 24;
-                const isW = lh >= p.workStart && lh < p.workEnd;
-                return <span key={p.id} style={{ color: isW ? "#7a7570" : "#1a1510" }}>{p.emoji} {fmtH(lh)} {isW ? "✓" : ""}</span>;
-              })}
-            </div>
+        <div style={{
+          display: "grid", gridTemplateColumns: "minmax(130px, 170px) 1fr",
+          marginTop: "5px",
+          height: "18px",
+          opacity: hoveredHour !== null && !dragging ? 1 : 0,
+          transition: "opacity 0.12s ease",
+          pointerEvents: "none",
+        }}>
+          <div style={{ fontFamily: mono, fontSize: "9px", color: "#4a4540" }}>{fmtH(hoveredHour ?? 0)} {userCity}</div>
+          <div style={{ display: "flex", gap: "10px", fontFamily: mono, fontSize: "9px", color: "#3a3530", flexWrap: "wrap" }}>
+            {enriched.map(p => {
+              const lh = (((hoveredHour ?? 0) + (p.offset - refOffset)) % 24 + 24) % 24;
+              const isW = lh >= p.workStart && lh < p.workEnd;
+              return <span key={p.id} style={{ color: isW ? "#7a7570" : "#1a1510" }}>{p.emoji} {fmtH(lh)} {isW ? "✓" : ""}</span>;
+            })}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Add person */}
