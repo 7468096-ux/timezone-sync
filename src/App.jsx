@@ -106,6 +106,22 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  // Detect user timezone
+  const userTZ = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return "Europe/Belgrade";
+    }
+  }, []);
+
+  const userCity = useMemo(() => {
+    const parts = userTZ.split("/");
+    return parts[parts.length - 1].replace(/_/g, " ");
+  }, [userTZ]);
+
+  const refOffset = getOffset(userTZ);
+
   // Persist to localStorage
   useEffect(() => {
     try { localStorage.setItem("tz-sync-people", JSON.stringify(people)); } catch {}
@@ -142,21 +158,6 @@ export default function App() {
       window.removeEventListener("touchend", up);
     };
   }, [dragging, people, userTZ]);
-
-  const userTZ = useMemo(() => {
-    try {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone;
-    } catch {
-      return "Europe/Belgrade";
-    }
-  }, []);
-
-  const userCity = useMemo(() => {
-    const parts = userTZ.split("/");
-    return parts[parts.length - 1].replace(/_/g, " ");
-  }, [userTZ]);
-
-  const refOffset = getOffset(userTZ);
 
   const enriched = useMemo(() =>
     people.map(p => ({ ...p, time: getTimeInTZ(p.tz), offset: getOffset(p.tz) })),
