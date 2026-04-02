@@ -49,15 +49,37 @@ function fmtH(h) {
 }
 
 /* ── URL hash encode/decode ── */
+// Compact: "name~city~tzIndex~start~end,name~city~tzIndex~start~end"
+// TZ stored as index into COMMON_TZ, or full string if not found
+const TZ_LIST = COMMON_TZ.map(([, v]) => v);
+
 function encodeConfig(people) {
-  const slim = people.map(p => ({
-    n: p.name, c: p.city, z: p.tz, s: p.workStart, e: p.workEnd,
-  }));
-  return btoa(encodeURIComponent(JSON.stringify(slim)));
+  const parts = people.map(p => {
+    const zi = TZ_LIST.indexOf(p.tz);
+    const tz = zi >= 0 ? zi : p.tz;
+    return `${p.name}~${p.city}~${tz}~${p.workStart}~${p.workEnd}`;
+  });
+  return encodeURIComponent(parts.join(","));
 }
 
 function decodeConfig(hash) {
   try {
+    // Try new compact format first
+    const decoded = decodeURIComponent(hash);
+    if (decoded.includes("~")) {
+      const parts = decoded.split(",");
+      return parts.map((part, i) => {
+        const [name, city, tzRaw, s, e] = part.split("~");
+        const tzIdx = parseInt(tzRaw);
+        const tz = !isNaN(tzIdx) && tzIdx < TZ_LIST.length ? TZ_LIST[tzIdx] : tzRaw;
+        return {
+          id: i + 1, name, city, tz,
+          emoji: FLAG_MAP[tz] || "🌍",
+          workStart: parseInt(s), workEnd: parseInt(e),
+        };
+      });
+    }
+    // Fallback: old base64+JSON format
     const json = decodeURIComponent(atob(hash));
     const arr = JSON.parse(json);
     return arr.map((p, i) => ({
