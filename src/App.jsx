@@ -170,6 +170,7 @@ export default function App() {
   useEffect(() => {
     if (!dragging) return;
     const move = (e) => {
+      if (e.touches) e.preventDefault();
       const cx = e.touches ? e.touches[0].clientX : e.clientX;
       const ref = tlRefs.current[dragging.pid];
       if (!ref) return;
@@ -242,8 +243,9 @@ export default function App() {
   return (
     <div style={{
       minHeight: "100vh", minHeight: "100dvh", background: "#08080a", color: "#e8e4df",
-      fontFamily: sans, padding: 0, overflow: "hidden",
+      fontFamily: sans, padding: 0, overflow: dragging ? "hidden" : "auto",
       userSelect: dragging ? "none" : "auto",
+      touchAction: dragging ? "none" : "auto",
     }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 
@@ -334,9 +336,9 @@ export default function App() {
       )}
 
       {/* Timeline */}
-      <div style={{ padding: "0 24px", overflowX: "auto" }}>
+      <div style={{ padding: "0 24px", overflowX: "hidden" }}>
         {/* Hours header */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 170px) 1fr", marginBottom: "1px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr", marginBottom: "1px" }}>
           <div />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)" }}>
             {Array.from({ length: 24 }, (_, i) => (
@@ -355,7 +357,7 @@ export default function App() {
           const weBelg = ((p.workEnd + (refOffset - p.offset)) % 24 + 24) % 24;
           return (
             <div key={p.id} style={{
-              display: "grid", gridTemplateColumns: "minmax(130px, 170px) 1fr",
+              display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr",
               alignItems: "center", marginBottom: "3px",
               animation: `fadeIn 0.3s ease ${idx * 0.05}s both`,
             }}>
@@ -398,6 +400,7 @@ export default function App() {
                   display: "grid", gridTemplateColumns: "repeat(24, 1fr)",
                   height: "42px", borderRadius: "7px", overflow: "hidden",
                   position: "relative", cursor: dragging ? "ew-resize" : "crosshair",
+                  touchAction: "none",
                 }}
                 onMouseMove={(e) => {
                   if (dragging) return;
@@ -442,8 +445,8 @@ export default function App() {
                     }}>
                       {["start", "end"].map(side => (
                         <div key={side} style={{
-                          position: "absolute", [side === "start" ? "left" : "right"]: "-7px",
-                          top: 0, bottom: 0, width: "14px", cursor: "ew-resize",
+                          position: "absolute", [side === "start" ? "left" : "right"]: "-12px",
+                          top: 0, bottom: 0, width: "24px", cursor: "ew-resize",
                           pointerEvents: "auto", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 12,
                         }} onMouseDown={sd(p.id, side)} onTouchStart={sd(p.id, side)}>
                           <div style={{
@@ -469,7 +472,7 @@ export default function App() {
 
         {/* Hover tooltip */}
         <div style={{
-          display: "grid", gridTemplateColumns: "minmax(130px, 170px) 1fr",
+          display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr",
           marginTop: "5px",
           height: "22px",
           opacity: hoveredHour !== null && !dragging ? 1 : 0,
@@ -572,6 +575,9 @@ export default function App() {
         ::-webkit-scrollbar-track{background:transparent}
         ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.04);border-radius:2px}
         @media(max-width:480px){
+          h1{font-size:20px!important}
+        }
+        @media(max-width:360px){
           h1{font-size:18px!important}
         }
       `}</style>
