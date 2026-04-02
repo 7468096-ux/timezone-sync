@@ -106,8 +106,8 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
-  // Detect user timezone
-  const userTZ = useMemo(() => {
+  // Detect user timezone, allow manual override
+  const detectedTZ = useMemo(() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone;
     } catch {
@@ -115,7 +115,24 @@ export default function App() {
     }
   }, []);
 
+  const [refTZ, setRefTZ] = useState(() => {
+    try {
+      const saved = localStorage.getItem("tz-sync-ref");
+      if (saved && COMMON_TZ.some(([, v]) => v === saved)) return saved;
+    } catch {}
+    // Match detected TZ to COMMON_TZ, fallback to detected
+    return COMMON_TZ.find(([, v]) => v === detectedTZ)?.[1] || detectedTZ;
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem("tz-sync-ref", refTZ); } catch {}
+  }, [refTZ]);
+
+  const userTZ = refTZ;
+
   const userCity = useMemo(() => {
+    const entry = COMMON_TZ.find(([, v]) => v === userTZ);
+    if (entry) return entry[0];
     const parts = userTZ.split("/");
     return parts[parts.length - 1].replace(/_/g, " ");
   }, [userTZ]);
@@ -211,19 +228,27 @@ export default function App() {
       {/* Header */}
       <div style={{ padding: "28px 24px 18px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontFamily: mono, fontSize: "9px", letterSpacing: "3px", textTransform: "uppercase", color: "#3a3530", marginBottom: "6px" }}>
+          <div style={{ fontFamily: mono, fontSize: "11px", letterSpacing: "3px", textTransform: "uppercase", color: "#3a3530", marginBottom: "6px" }}>
             Timezone Sync
           </div>
-          <h1 style={{ fontSize: "22px", fontWeight: 300, margin: 0, letterSpacing: "-0.3px" }}>
+          <h1 style={{ fontSize: "28px", fontWeight: 300, margin: 0, letterSpacing: "-0.3px" }}>
             Найди окно
           </h1>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontFamily: mono, fontSize: "26px", fontWeight: 700, color: "#f0c050", letterSpacing: "-1px", lineHeight: 1 }}>
+          <div style={{ fontFamily: mono, fontSize: "32px", fontWeight: 700, color: "#f0c050", letterSpacing: "-1px", lineHeight: 1 }}>
             {now.toLocaleTimeString("en-GB", { timeZone: userTZ, hour: "2-digit", minute: "2-digit" })}
           </div>
-          <div style={{ fontFamily: mono, fontSize: "9px", color: "#3a3530", marginTop: "3px" }}>
+          <div style={{ fontFamily: mono, fontSize: "11px", color: "#3a3530", marginTop: "5px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "4px" }}>
             {now.toLocaleDateString(undefined, { timeZone: userTZ, weekday: "short", day: "numeric", month: "short" })}
+            <span style={{ color: "#1a1510" }}>·</span>
+            <select value={refTZ} onChange={e => setRefTZ(e.target.value)} style={{
+              background: "transparent", border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "4px", padding: "1px 4px", color: "#7a7570",
+              fontFamily: mono, fontSize: "11px", outline: "none", cursor: "pointer",
+            }}>
+              {COMMON_TZ.map(([l, v]) => <option key={v} value={v}>{l}</option>)}
+            </select>
           </div>
         </div>
       </div>
@@ -235,12 +260,12 @@ export default function App() {
           border: copied ? "1px solid rgba(80,176,128,0.25)" : "1px solid rgba(255,255,255,0.06)",
           borderRadius: "7px", padding: "6px 12px",
           color: copied ? "#50b080" : "#5a554f",
-          fontFamily: sans, fontSize: "11px", cursor: "pointer", transition: "all 0.25s",
+          fontFamily: sans, fontSize: "13px", cursor: "pointer", transition: "all 0.25s",
           display: "flex", alignItems: "center", gap: "5px",
         }}>
           {copied ? "✓ Скопировано" : "🔗 Поделиться ссылкой"}
         </button>
-        <div style={{ fontFamily: mono, fontSize: "9px", color: "#2a2520" }}>
+        <div style={{ fontFamily: mono, fontSize: "11px", color: "#2a2520" }}>
           тяни края полос → рабочие часы
         </div>
       </div>
@@ -258,12 +283,12 @@ export default function App() {
             boxShadow: "0 0 10px rgba(240,192,80,0.5)", animation: "pulse 2s ease-in-out infinite", flexShrink: 0,
           }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: mono, fontSize: "9px", letterSpacing: "2px", color: "#f0c050", textTransform: "uppercase", marginBottom: "1px" }}>
+            <div style={{ fontFamily: mono, fontSize: "11px", letterSpacing: "2px", color: "#f0c050", textTransform: "uppercase", marginBottom: "2px" }}>
               Общее окно
             </div>
-            <div style={{ fontSize: "16px", fontWeight: 500 }}>
+            <div style={{ fontSize: "20px", fontWeight: 500 }}>
               {fmtH(Math.ceil(golden.start))} — {fmtH(Math.floor(golden.end))}
-              <span style={{ fontSize: "11px", color: "#5a554f", marginLeft: "10px", fontWeight: 300 }}>
+              <span style={{ fontSize: "13px", color: "#5a554f", marginLeft: "10px", fontWeight: 300 }}>
                 по {userCity} · {Math.max(0, Math.floor(golden.end) - Math.ceil(golden.start))}ч
               </span>
             </div>
@@ -272,7 +297,7 @@ export default function App() {
             {enriched.map(p => {
               const ls = ((Math.ceil(golden.start) + (p.offset - refOffset)) % 24 + 24) % 24;
               const le = ((Math.floor(golden.end) + (p.offset - refOffset)) % 24 + 24) % 24;
-              return <div key={p.id} style={{ fontFamily: mono, fontSize: "9px", color: "#4a4540" }}>{p.emoji} {fmtH(ls)}–{fmtH(le)}</div>;
+              return <div key={p.id} style={{ fontFamily: mono, fontSize: "11px", color: "#4a4540" }}>{p.emoji} {fmtH(ls)}–{fmtH(le)}</div>;
             })}
           </div>
         </div>
@@ -280,7 +305,7 @@ export default function App() {
         <div style={{
           margin: "0 24px 18px", padding: "12px 16px",
           background: "rgba(200,60,60,0.05)", border: "1px solid rgba(200,60,60,0.12)",
-          borderRadius: "11px", fontSize: "12px", color: "#c86050",
+          borderRadius: "11px", fontSize: "14px", color: "#c86050",
         }}>
           ⚠ Нет общего окна — подвинь чьи-нибудь рабочие часы
         </div>
@@ -294,7 +319,7 @@ export default function App() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)" }}>
             {Array.from({ length: 24 }, (_, i) => (
               <div key={i} style={{
-                fontFamily: mono, fontSize: "8px",
+                fontFamily: mono, fontSize: "10px",
                 color: i % 3 === 0 ? "#2a2520" : "transparent",
                 textAlign: "left", paddingLeft: "1px",
               }}>{fmtH(i)}</div>
@@ -315,10 +340,10 @@ export default function App() {
               {/* Info */}
               <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingRight: "12px", minWidth: 0 }}>
                 <div style={{
-                  width: "30px", height: "30px", borderRadius: "8px",
+                  width: "36px", height: "36px", borderRadius: "8px",
                   background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "14px", flexShrink: 0, position: "relative",
+                  fontSize: "17px", flexShrink: 0, position: "relative",
                 }}>
                   {p.emoji}
                   {people.length > 1 && (
@@ -333,10 +358,10 @@ export default function App() {
                   )}
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: "12px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <div style={{ fontSize: "14px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {p.name}
                   </div>
-                  <div style={{ fontFamily: mono, fontSize: "9px", color: "#4a4540", display: "flex", gap: "5px", alignItems: "center" }}>
+                  <div style={{ fontFamily: mono, fontSize: "11px", color: "#4a4540", display: "flex", gap: "5px", alignItems: "center" }}>
                     <span style={{ color: "#7a7570" }}>{p.time.hours.toString().padStart(2, "0")}:{p.time.minutes.toString().padStart(2, "0")}</span>
                     <span style={{ color: "#1a1510" }}>·</span>
                     <span>{fmtH(p.workStart)}–{fmtH(p.workEnd)}</span>
@@ -349,7 +374,7 @@ export default function App() {
                 ref={el => tlRefs.current[p.id] = el}
                 style={{
                   display: "grid", gridTemplateColumns: "repeat(24, 1fr)",
-                  height: "36px", borderRadius: "7px", overflow: "hidden",
+                  height: "42px", borderRadius: "7px", overflow: "hidden",
                   position: "relative", cursor: dragging ? "ew-resize" : "crosshair",
                 }}
                 onMouseMove={(e) => {
@@ -424,13 +449,13 @@ export default function App() {
         <div style={{
           display: "grid", gridTemplateColumns: "minmax(130px, 170px) 1fr",
           marginTop: "5px",
-          height: "18px",
+          height: "22px",
           opacity: hoveredHour !== null && !dragging ? 1 : 0,
           transition: "opacity 0.12s ease",
           pointerEvents: "none",
         }}>
-          <div style={{ fontFamily: mono, fontSize: "9px", color: "#4a4540" }}>{fmtH(hoveredHour ?? 0)} {userCity}</div>
-          <div style={{ display: "flex", gap: "10px", fontFamily: mono, fontSize: "9px", color: "#3a3530", flexWrap: "wrap" }}>
+          <div style={{ fontFamily: mono, fontSize: "11px", color: "#4a4540" }}>{fmtH(hoveredHour ?? 0)} {userCity}</div>
+          <div style={{ display: "flex", gap: "10px", fontFamily: mono, fontSize: "11px", color: "#3a3530", flexWrap: "wrap" }}>
             {enriched.map(p => {
               const lh = (((hoveredHour ?? 0) + (p.offset - refOffset)) % 24 + 24) % 24;
               const isW = lh >= p.workStart && lh < p.workEnd;
@@ -445,8 +470,8 @@ export default function App() {
         {!showAddForm ? (
           <button onClick={() => setShowAddForm(true)} style={{
             background: "none", border: "1px dashed rgba(255,255,255,0.06)",
-            borderRadius: "9px", padding: "10px 16px", color: "#2a2520",
-            fontFamily: sans, fontSize: "11px", cursor: "pointer", transition: "all 0.2s", width: "100%",
+            borderRadius: "9px", padding: "12px 16px", color: "#2a2520",
+            fontFamily: sans, fontSize: "14px", cursor: "pointer", transition: "all 0.2s", width: "100%",
           }}
             onMouseEnter={e => { e.target.style.borderColor = "rgba(240,192,80,0.2)"; e.target.style.color = "#f0c050"; }}
             onMouseLeave={e => { e.target.style.borderColor = "rgba(255,255,255,0.06)"; e.target.style.color = "#2a2520"; }}
@@ -509,7 +534,7 @@ export default function App() {
               ? <div style={{ width: "12px", height: "9px", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ width: "2px", height: "9px", background: i.c, borderRadius: "1px" }} /></div>
               : <div style={{ width: "12px", height: "9px", background: i.c, borderRadius: "2px", border: i.b ? `1px solid ${i.b}` : "1px solid rgba(255,255,255,0.03)" }} />
             }
-            <span style={{ fontFamily: mono, fontSize: "8px", color: "#2a2520" }}>{i.l}</span>
+            <span style={{ fontFamily: mono, fontSize: "11px", color: "#2a2520" }}>{i.l}</span>
           </div>
         ))}
       </div>
