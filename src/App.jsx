@@ -355,7 +355,7 @@ export default function App() {
       {/* Timeline */}
       <div style={{ padding: "0 24px", overflowX: "hidden" }}>
         {/* Hours header */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr", marginBottom: "1px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", marginBottom: "1px" }}>
           <div />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)" }}>
             {Array.from({ length: 24 }, (_, i) => (
@@ -371,7 +371,7 @@ export default function App() {
         {/* Person rows */}
         {enriched.map((p, idx) => (
           <div key={p.id} style={{
-            display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr",
+            display: "grid", gridTemplateColumns: "130px 1fr",
             alignItems: "center", marginBottom: "3px",
             animation: `fadeIn 0.3s ease ${idx * 0.05}s both`,
           }}>
@@ -399,10 +399,10 @@ export default function App() {
                 <div style={{ fontSize: "14px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {p.name}
                 </div>
-                <div style={{ fontFamily: mono, fontSize: "10px", color: "#4a4540", marginTop: "1px" }}>
+                <div style={{ fontFamily: mono, fontSize: "10px", color: "#4a4540", marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   <span style={{ color: "#7a7570" }}>{p.time.hours.toString().padStart(2, "0")}:{p.time.minutes.toString().padStart(2, "0")}</span>
                   <span style={{ color: "#1a1510" }}> · </span>
-                  <span>{describeHours(p.workHours)}</span>
+                  <span>{p.workHours.length}ч</span>
                 </div>
               </div>
             </div>
@@ -454,7 +454,7 @@ export default function App() {
 
         {/* Hover tooltip */}
         <div style={{
-          display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr",
+          display: "grid", gridTemplateColumns: "130px 1fr",
           marginTop: "5px", height: "22px",
           opacity: hoveredHour !== null ? 1 : 0,
           transition: "opacity 0.12s ease", pointerEvents: "none",
