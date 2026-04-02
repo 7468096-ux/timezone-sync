@@ -394,7 +394,7 @@ export default function App() {
                   const isG = golden && i >= Math.ceil(golden.start) && i < Math.floor(golden.end);
                   const isNow = Math.floor(p.time.decimal) === Math.floor(lh);
                   const isSleep = lh >= 0 && lh < 7;
-                  const isH = hoveredHour === i && !dragging;
+                  const isH = hoveredHour === i;
                   let bg = "rgba(255,255,255,0.012)";
                   if (isSleep) bg = "rgba(0,0,0,0.22)";
                   if (isW) bg = "rgba(255,255,255,0.055)";
