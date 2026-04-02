@@ -118,7 +118,6 @@ export default function App() {
   const [newName, setNewName] = useState("");
   const [newCity, setNewCity] = useState("");
   const [newTz, setNewTz] = useState("US/Eastern");
-  const [dragging, setDragging] = useState(null);
   const [copied, setCopied] = useState(false);
   const tlRefs = useRef({});
 
@@ -166,38 +165,16 @@ export default function App() {
     try { localStorage.setItem("tz-sync-people", JSON.stringify(people)); } catch {}
   }, [people]);
 
-  // Drag handler
-  useEffect(() => {
-    if (!dragging) return;
-    const move = (e) => {
-      if (e.touches) e.preventDefault();
-      const cx = e.touches ? e.touches[0].clientX : e.clientX;
-      const ref = tlRefs.current[dragging.pid];
-      if (!ref) return;
-      const rect = ref.getBoundingClientRect();
-      const x = Math.max(0, Math.min(1, (cx - rect.left) / rect.width));
-      const belgH = Math.round(x * 24);
-      const p = people.find(pp => pp.id === dragging.pid);
-      if (!p) return;
-      const localH = ((belgH + getOffset(p.tz) - getOffset(userTZ)) % 24 + 24) % 24;
-      setPeople(prev => prev.map(pp => {
-        if (pp.id !== dragging.pid) return pp;
-        if (dragging.side === "start") return { ...pp, workStart: Math.min(localH, pp.workEnd - 1) };
-        return { ...pp, workEnd: Math.max(localH, pp.workStart + 1) };
-      }));
-    };
-    const up = () => setDragging(null);
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-    window.addEventListener("touchmove", move, { passive: false });
-    window.addEventListener("touchend", up);
-    return () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-      window.removeEventListener("touchmove", move);
-      window.removeEventListener("touchend", up);
-    };
-  }, [dragging, people, userTZ]);
+  // Work hours adjustment helpers
+  const adjustHour = (pid, field, delta) => {
+    setPeople(prev => prev.map(p => {
+      if (p.id !== pid) return p;
+      const val = ((p[field] + delta) % 24 + 24) % 24;
+      if (field === "workStart" && val >= p.workEnd) return p;
+      if (field === "workEnd" && val <= p.workStart) return p;
+      return { ...p, [field]: val };
+    }));
+  };
 
   const enriched = useMemo(() =>
     people.map(p => ({ ...p, time: getTimeInTZ(p.tz), offset: getOffset(p.tz) })),
@@ -235,17 +212,19 @@ export default function App() {
     });
   };
 
-  const sd = (pid, side) => (e) => { e.preventDefault(); setDragging({ pid, side }); };
-
   const mono = "'JetBrains Mono', monospace";
   const sans = "'DM Sans', -apple-system, sans-serif";
+  const btnStyle = {
+    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: "4px", padding: "1px 5px", color: "#5a554f",
+    fontFamily: mono, fontSize: "8px", cursor: "pointer", lineHeight: 1,
+    transition: "all 0.15s",
+  };
 
   return (
     <div style={{
       minHeight: "100vh", minHeight: "100dvh", background: "#08080a", color: "#e8e4df",
-      fontFamily: sans, padding: 0, overflow: dragging ? "hidden" : "auto",
-      userSelect: dragging ? "none" : "auto",
-      touchAction: dragging ? "none" : "auto",
+      fontFamily: sans, padding: 0, overflow: "auto",
     }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 
@@ -290,7 +269,7 @@ export default function App() {
           {copied ? "✓ Скопировано" : "🔗 Поделиться ссылкой"}
         </button>
         <div style={{ fontFamily: mono, fontSize: "11px", color: "#2a2520" }}>
-          тяни края полос → рабочие часы
+          ◀ ▶ меняй рабочие часы
         </div>
       </div>
 
@@ -385,10 +364,12 @@ export default function App() {
                   <div style={{ fontSize: "14px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {p.name}
                   </div>
-                  <div style={{ fontFamily: mono, fontSize: "11px", color: "#4a4540", display: "flex", gap: "5px", alignItems: "center" }}>
+                  <div style={{ fontFamily: mono, fontSize: "10px", color: "#4a4540", display: "flex", gap: "3px", alignItems: "center", marginTop: "2px" }}>
                     <span style={{ color: "#7a7570" }}>{p.time.hours.toString().padStart(2, "0")}:{p.time.minutes.toString().padStart(2, "0")}</span>
                     <span style={{ color: "#1a1510" }}>·</span>
-                    <span>{fmtH(p.workStart)}–{fmtH(p.workEnd)}</span>
+                    <button onClick={() => adjustHour(p.id, "workStart", -1)} style={btnStyle}>◀</button>
+                    <span style={{ color: "#f0c050", minWidth: "72px", textAlign: "center" }}>{fmtH(p.workStart)}–{fmtH(p.workEnd)}</span>
+                    <button onClick={() => adjustHour(p.id, "workEnd", 1)} style={btnStyle}>▶</button>
                   </div>
                 </div>
               </div>
@@ -399,15 +380,13 @@ export default function App() {
                 style={{
                   display: "grid", gridTemplateColumns: "repeat(24, 1fr)",
                   height: "42px", borderRadius: "7px", overflow: "hidden",
-                  position: "relative", cursor: dragging ? "ew-resize" : "crosshair",
-                  touchAction: "none",
+                  position: "relative", cursor: "crosshair",
                 }}
                 onMouseMove={(e) => {
-                  if (dragging) return;
                   const r = e.currentTarget.getBoundingClientRect();
                   setHoveredHour(Math.floor(((e.clientX - r.left) / r.width) * 24));
                 }}
-                onMouseLeave={() => !dragging && setHoveredHour(null)}
+                onMouseLeave={() => setHoveredHour(null)}
               >
                 {Array.from({ length: 24 }, (_, i) => {
                   const lh = ((i + (p.offset - refOffset)) % 24 + 24) % 24;
@@ -429,40 +408,19 @@ export default function App() {
                   );
                 })}
 
-                {/* Drag overlay */}
+                {/* Work hours border overlay (visual only) */}
                 {(() => {
                   const sp = (wsBelg / 24) * 100;
                   const raw = weBelg > wsBelg ? weBelg - wsBelg : 24 - wsBelg + weBelg;
                   const wp = (raw / 24) * 100;
-                  const active = dragging?.pid === p.id;
                   return (
                     <div style={{
                       position: "absolute", left: `${sp}%`, width: `${wp}%`,
                       top: 0, bottom: 0, pointerEvents: "none",
-                      borderLeft: `1.5px solid rgba(240,192,80,${active ? 0.6 : 0.25})`,
-                      borderRight: `1.5px solid rgba(240,192,80,${active ? 0.6 : 0.25})`,
-                      zIndex: 8, transition: "border-color 0.15s",
-                    }}>
-                      {["start", "end"].map(side => (
-                        <div key={side} style={{
-                          position: "absolute", [side === "start" ? "left" : "right"]: "-12px",
-                          top: 0, bottom: 0, width: "24px", cursor: "ew-resize",
-                          pointerEvents: "auto", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 12,
-                        }} onMouseDown={sd(p.id, side)} onTouchStart={sd(p.id, side)}>
-                          <div style={{
-                            width: active && dragging?.side === side ? "4px" : "3px",
-                            height: active && dragging?.side === side ? "20px" : "14px",
-                            borderRadius: "2px",
-                            background: active && dragging?.side === side ? "#f0c050" : "rgba(240,192,80,0.45)",
-                            transition: "all 0.15s",
-                          }} />
-                        </div>
-                      ))}
-                      {active && <>
-                        <div style={{ position: "absolute", left: "-2px", top: "-16px", fontFamily: mono, fontSize: "8px", color: "#f0c050", background: "rgba(8,8,10,0.9)", padding: "1px 4px", borderRadius: "3px", whiteSpace: "nowrap", zIndex: 20 }}>{fmtH(p.workStart)}</div>
-                        <div style={{ position: "absolute", right: "-2px", top: "-16px", fontFamily: mono, fontSize: "8px", color: "#f0c050", background: "rgba(8,8,10,0.9)", padding: "1px 4px", borderRadius: "3px", whiteSpace: "nowrap", zIndex: 20 }}>{fmtH(p.workEnd)}</div>
-                      </>}
-                    </div>
+                      borderLeft: "1.5px solid rgba(240,192,80,0.25)",
+                      borderRight: "1.5px solid rgba(240,192,80,0.25)",
+                      zIndex: 8,
+                    }} />
                   );
                 })()}
               </div>
@@ -475,7 +433,7 @@ export default function App() {
           display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr",
           marginTop: "5px",
           height: "22px",
-          opacity: hoveredHour !== null && !dragging ? 1 : 0,
+          opacity: hoveredHour !== null ? 1 : 0,
           transition: "opacity 0.12s ease",
           pointerEvents: "none",
         }}>
