@@ -1,11 +1,17 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
 /* ── defaults ── */
+function hoursRange(start, end) {
+  const arr = [];
+  for (let i = start; i < end; i++) arr.push(i);
+  return arr;
+}
+
 const DEFAULTS = [
-  { id: 1, name: "Ты", city: "Belgrade", tz: "Europe/Belgrade", emoji: "🇷🇸", workStart: 9, workEnd: 21 },
-  { id: 2, name: "Берлин", city: "Berlin", tz: "Europe/Berlin", emoji: "🇩🇪", workStart: 9, workEnd: 18 },
-  { id: 3, name: "Сценарист", city: "Zürich", tz: "Europe/Zurich", emoji: "🇨🇭", workStart: 10, workEnd: 19 },
-  { id: 4, name: "Агентство", city: "San Francisco", tz: "America/Los_Angeles", emoji: "🇺🇸", workStart: 9, workEnd: 18 },
+  { id: 1, name: "Ты", city: "Belgrade", tz: "Europe/Belgrade", emoji: "🇷🇸", workHours: hoursRange(9, 21) },
+  { id: 2, name: "Берлин", city: "Berlin", tz: "Europe/Berlin", emoji: "🇩🇪", workHours: hoursRange(9, 18) },
+  { id: 3, name: "Сценарист", city: "Zürich", tz: "Europe/Zurich", emoji: "🇨🇭", workHours: hoursRange(10, 19) },
+  { id: 4, name: "Агентство", city: "San Francisco", tz: "America/Los_Angeles", emoji: "🇺🇸", workHours: hoursRange(9, 18) },
 ];
 
 const FLAG_MAP = {
@@ -48,35 +54,67 @@ function fmtH(h) {
   return `${hh.toString().padStart(2, "0")}:00`;
 }
 
+// Encode workHours as 24-bit hex (6 chars): bit i = hour i available
+function encodeHours(hours) {
+  let mask = 0;
+  hours.forEach(h => { mask |= (1 << h); });
+  return mask.toString(16).padStart(6, "0");
+}
+
+function decodeHours(hex) {
+  const mask = parseInt(hex, 16);
+  const hours = [];
+  for (let i = 0; i < 24; i++) {
+    if (mask & (1 << i)) hours.push(i);
+  }
+  return hours;
+}
+
+function describeHours(hours) {
+  if (hours.length === 0) return "—";
+  const sorted = [...hours].sort((a, b) => a - b);
+  // Find contiguous ranges
+  const ranges = [];
+  let start = sorted[0], prev = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === prev + 1) { prev = sorted[i]; }
+    else { ranges.push([start, prev + 1]); start = sorted[i]; prev = sorted[i]; }
+  }
+  ranges.push([start, prev + 1]);
+  return ranges.map(([s, e]) => `${fmtH(s)}–${fmtH(e)}`).join(", ");
+}
+
 /* ── URL hash encode/decode ── */
-// Compact: "name~city~tzIndex~start~end,name~city~tzIndex~start~end"
-// TZ stored as index into COMMON_TZ, or full string if not found
 const TZ_LIST = COMMON_TZ.map(([, v]) => v);
 
 function encodeConfig(people) {
   const parts = people.map(p => {
     const zi = TZ_LIST.indexOf(p.tz);
     const tz = zi >= 0 ? zi : p.tz;
-    return `${p.name}~${p.city}~${tz}~${p.workStart}~${p.workEnd}`;
+    return `${p.name}~${p.city}~${tz}~${encodeHours(p.workHours)}`;
   });
   return encodeURIComponent(parts.join(","));
 }
 
 function decodeConfig(hash) {
   try {
-    // Try new compact format first
     const decoded = decodeURIComponent(hash);
     if (decoded.includes("~")) {
       const parts = decoded.split(",");
       return parts.map((part, i) => {
-        const [name, city, tzRaw, s, e] = part.split("~");
+        const segs = part.split("~");
+        const [name, city, tzRaw] = segs;
         const tzIdx = parseInt(tzRaw);
         const tz = !isNaN(tzIdx) && tzIdx < TZ_LIST.length ? TZ_LIST[tzIdx] : tzRaw;
-        return {
-          id: i + 1, name, city, tz,
-          emoji: FLAG_MAP[tz] || "🌍",
-          workStart: parseInt(s), workEnd: parseInt(e),
-        };
+        let workHours;
+        if (segs.length === 5) {
+          // Old format: name~city~tz~start~end
+          workHours = hoursRange(parseInt(segs[3]), parseInt(segs[4]));
+        } else {
+          // New format: name~city~tz~hexHours
+          workHours = decodeHours(segs[3]);
+        }
+        return { id: i + 1, name, city, tz, emoji: FLAG_MAP[tz] || "🌍", workHours };
       });
     }
     // Fallback: old base64+JSON format
@@ -85,27 +123,30 @@ function decodeConfig(hash) {
     return arr.map((p, i) => ({
       id: i + 1, name: p.n, city: p.c, tz: p.z,
       emoji: FLAG_MAP[p.z] || "🌍",
-      workStart: p.s, workEnd: p.e,
+      workHours: p.h ? decodeHours(p.h) : hoursRange(p.s, p.e),
     }));
   } catch { return null; }
 }
 
+// Migrate old format (workStart/workEnd) to new (workHours)
+function migratePerson(p) {
+  if (p.workHours) return p;
+  return { ...p, workHours: hoursRange(p.workStart || 9, p.workEnd || 18) };
+}
+
 function loadPeople() {
-  // 1. Check URL hash
   const hash = window.location.hash.slice(1);
   if (hash) {
     const fromUrl = decodeConfig(hash);
-    if (fromUrl && fromUrl.length > 0) return fromUrl;
+    if (fromUrl && fromUrl.length > 0) return fromUrl.map(migratePerson);
   }
-  // 2. Check localStorage
   try {
     const saved = localStorage.getItem("tz-sync-people");
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(migratePerson);
     }
   } catch {}
-  // 3. Defaults
   return DEFAULTS;
 }
 
@@ -121,19 +162,14 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const tlRefs = useRef({});
 
-  // Clock tick
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 15000);
     return () => clearInterval(t);
   }, []);
 
-  // Detect user timezone, allow manual override
   const detectedTZ = useMemo(() => {
-    try {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone;
-    } catch {
-      return "Europe/Belgrade";
-    }
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+    catch { return "Europe/Belgrade"; }
   }, []);
 
   const [refTZ, setRefTZ] = useState(() => {
@@ -141,7 +177,6 @@ export default function App() {
       const saved = localStorage.getItem("tz-sync-ref");
       if (saved && COMMON_TZ.some(([, v]) => v === saved)) return saved;
     } catch {}
-    // Match detected TZ to COMMON_TZ, fallback to detected
     return COMMON_TZ.find(([, v]) => v === detectedTZ)?.[1] || detectedTZ;
   });
 
@@ -150,46 +185,55 @@ export default function App() {
   }, [refTZ]);
 
   const userTZ = refTZ;
-
   const userCity = useMemo(() => {
     const entry = COMMON_TZ.find(([, v]) => v === userTZ);
     if (entry) return entry[0];
-    const parts = userTZ.split("/");
-    return parts[parts.length - 1].replace(/_/g, " ");
+    return userTZ.split("/").pop().replace(/_/g, " ");
   }, [userTZ]);
-
   const refOffset = getOffset(userTZ);
 
-  // Persist to localStorage
   useEffect(() => {
     try { localStorage.setItem("tz-sync-people", JSON.stringify(people)); } catch {}
   }, [people]);
 
-  // Work hours adjustment helpers
-  const adjustHour = (pid, field, delta) => {
+  // Toggle hour for a person (in their local time)
+  const toggleHour = useCallback((pid, localHour) => {
     setPeople(prev => prev.map(p => {
       if (p.id !== pid) return p;
-      const val = ((p[field] + delta) % 24 + 24) % 24;
-      if (field === "workStart" && val >= p.workEnd) return p;
-      if (field === "workEnd" && val <= p.workStart) return p;
-      return { ...p, [field]: val };
+      const has = p.workHours.includes(localHour);
+      const newHours = has
+        ? p.workHours.filter(h => h !== localHour)
+        : [...p.workHours, localHour].sort((a, b) => a - b);
+      return { ...p, workHours: newHours };
     }));
-  };
+  }, []);
 
   const enriched = useMemo(() =>
     people.map(p => ({ ...p, time: getTimeInTZ(p.tz), offset: getOffset(p.tz) })),
     [people, now]
   );
 
+  // Golden window: find ref-timezone hours where ALL people are available
   const golden = useMemo(() => {
-    let ls = -Infinity, ee = Infinity;
-    enriched.forEach(p => {
-      const bs = p.workStart + (refOffset - p.offset);
-      const be = p.workEnd + (refOffset - p.offset);
-      if (bs > ls) ls = bs;
-      if (be < ee) ee = be;
-    });
-    return ee > ls ? { start: ls, end: ee } : null;
+    const commonRefHours = [];
+    for (let refH = 0; refH < 24; refH++) {
+      const allAvail = enriched.every(p => {
+        const localH = ((refH + (p.offset - refOffset)) % 24 + 24) % 24;
+        return p.workHours.includes(Math.floor(localH));
+      });
+      if (allAvail) commonRefHours.push(refH);
+    }
+    if (commonRefHours.length === 0) return null;
+    // Find contiguous ranges, pick the longest
+    const ranges = [];
+    let start = commonRefHours[0], prev = commonRefHours[0];
+    for (let i = 1; i < commonRefHours.length; i++) {
+      if (commonRefHours[i] === prev + 1) { prev = commonRefHours[i]; }
+      else { ranges.push({ start, end: prev + 1 }); start = commonRefHours[i]; prev = commonRefHours[i]; }
+    }
+    ranges.push({ start, end: prev + 1 });
+    ranges.sort((a, b) => (b.end - b.start) - (a.end - a.start));
+    return { start: ranges[0].start, end: ranges[0].end, allHours: commonRefHours };
   }, [enriched, refOffset]);
 
   const removePerson = (id) => people.length > 1 && setPeople(p => p.filter(x => x.id !== id));
@@ -199,7 +243,7 @@ export default function App() {
     const id = Math.max(0, ...people.map(p => p.id)) + 1;
     setPeople(prev => [...prev, {
       id, name: newName.trim(), city: newCity.trim() || COMMON_TZ.find(t => t[1] === newTz)?.[0] || newTz,
-      tz: newTz, emoji: FLAG_MAP[newTz] || "🌍", workStart: 9, workEnd: 18,
+      tz: newTz, emoji: FLAG_MAP[newTz] || "🌍", workHours: hoursRange(9, 18),
     }]);
     setNewName(""); setNewCity(""); setShowAddForm(false);
   };
@@ -214,12 +258,6 @@ export default function App() {
 
   const mono = "'JetBrains Mono', monospace";
   const sans = "'DM Sans', -apple-system, sans-serif";
-  const btnStyle = {
-    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: "4px", padding: "1px 5px", color: "#5a554f",
-    fontFamily: mono, fontSize: "8px", cursor: "pointer", lineHeight: 1,
-    transition: "all 0.15s",
-  };
 
   return (
     <div style={{
@@ -256,7 +294,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Share button */}
+      {/* Share + hint */}
       <div style={{ padding: "0 24px 14px", display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={shareLink} style={{
           background: copied ? "rgba(80,176,128,0.12)" : "rgba(255,255,255,0.03)",
@@ -269,7 +307,7 @@ export default function App() {
           {copied ? "✓ Скопировано" : "🔗 Поделиться ссылкой"}
         </button>
         <div style={{ fontFamily: mono, fontSize: "11px", color: "#2a2520" }}>
-          ◀ ▶ меняй рабочие часы
+          нажми на ячейку — вкл/выкл час
         </div>
       </div>
 
@@ -290,16 +328,16 @@ export default function App() {
               Общее окно
             </div>
             <div style={{ fontSize: "20px", fontWeight: 500 }}>
-              {fmtH(Math.ceil(golden.start))} — {fmtH(Math.floor(golden.end))}
+              {fmtH(golden.start)} — {fmtH(golden.end)}
               <span style={{ fontSize: "13px", color: "#5a554f", marginLeft: "10px", fontWeight: 300 }}>
-                по {userCity} · {Math.max(0, Math.floor(golden.end) - Math.ceil(golden.start))}ч
+                по {userCity} · {golden.allHours.length}ч
               </span>
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
             {enriched.map(p => {
-              const ls = ((Math.ceil(golden.start) + (p.offset - refOffset)) % 24 + 24) % 24;
-              const le = ((Math.floor(golden.end) + (p.offset - refOffset)) % 24 + 24) % 24;
+              const ls = ((golden.start + (p.offset - refOffset)) % 24 + 24) % 24;
+              const le = ((golden.end + (p.offset - refOffset)) % 24 + 24) % 24;
               return <div key={p.id} style={{ fontFamily: mono, fontSize: "11px", color: "#4a4540" }}>{p.emoji} {fmtH(ls)}–{fmtH(le)}</div>;
             })}
           </div>
@@ -310,7 +348,7 @@ export default function App() {
           background: "rgba(200,60,60,0.05)", border: "1px solid rgba(200,60,60,0.12)",
           borderRadius: "11px", fontSize: "14px", color: "#c86050",
         }}>
-          ⚠ Нет общего окна — подвинь чьи-нибудь рабочие часы
+          ⚠ Нет общего окна — выдели доступные часы у каждого
         </div>
       )}
 
@@ -331,117 +369,102 @@ export default function App() {
         </div>
 
         {/* Person rows */}
-        {enriched.map((p, idx) => {
-          const wsBelg = ((p.workStart + (refOffset - p.offset)) % 24 + 24) % 24;
-          const weBelg = ((p.workEnd + (refOffset - p.offset)) % 24 + 24) % 24;
-          return (
-            <div key={p.id} style={{
-              display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr",
-              alignItems: "center", marginBottom: "3px",
-              animation: `fadeIn 0.3s ease ${idx * 0.05}s both`,
-            }}>
-              {/* Info */}
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingRight: "12px", minWidth: 0 }}>
-                <div style={{
-                  width: "36px", height: "36px", borderRadius: "8px",
-                  background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "17px", flexShrink: 0, position: "relative",
-                }}>
-                  {p.emoji}
-                  {people.length > 1 && (
-                    <button onClick={() => removePerson(p.id)} className="rm" style={{
-                      position: "absolute", top: "-4px", right: "-4px",
-                      width: "13px", height: "13px", borderRadius: "50%",
-                      background: "#12090c", border: "1px solid rgba(200,60,60,0.25)",
-                      color: "#c83c3c", fontSize: "8px", cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      opacity: 0, transition: "opacity 0.15s",
-                    }}>×</button>
-                  )}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: "14px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {p.name}
-                  </div>
-                  <div style={{ fontFamily: mono, fontSize: "10px", color: "#4a4540", display: "flex", gap: "3px", alignItems: "center", marginTop: "2px" }}>
-                    <span style={{ color: "#7a7570" }}>{p.time.hours.toString().padStart(2, "0")}:{p.time.minutes.toString().padStart(2, "0")}</span>
-                    <span style={{ color: "#1a1510" }}>·</span>
-                    <button onClick={() => adjustHour(p.id, "workStart", -1)} style={btnStyle}>◀</button>
-                    <span style={{ color: "#f0c050", minWidth: "72px", textAlign: "center" }}>{fmtH(p.workStart)}–{fmtH(p.workEnd)}</span>
-                    <button onClick={() => adjustHour(p.id, "workEnd", 1)} style={btnStyle}>▶</button>
-                  </div>
-                </div>
+        {enriched.map((p, idx) => (
+          <div key={p.id} style={{
+            display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr",
+            alignItems: "center", marginBottom: "3px",
+            animation: `fadeIn 0.3s ease ${idx * 0.05}s both`,
+          }}>
+            {/* Info */}
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingRight: "12px", minWidth: 0 }}>
+              <div style={{
+                width: "36px", height: "36px", borderRadius: "8px",
+                background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "17px", flexShrink: 0, position: "relative",
+              }}>
+                {p.emoji}
+                {people.length > 1 && (
+                  <button onClick={() => removePerson(p.id)} className="rm" style={{
+                    position: "absolute", top: "-4px", right: "-4px",
+                    width: "13px", height: "13px", borderRadius: "50%",
+                    background: "#12090c", border: "1px solid rgba(200,60,60,0.25)",
+                    color: "#c83c3c", fontSize: "8px", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    opacity: 0, transition: "opacity 0.15s",
+                  }}>×</button>
+                )}
               </div>
-
-              {/* Timeline bar */}
-              <div
-                ref={el => tlRefs.current[p.id] = el}
-                style={{
-                  display: "grid", gridTemplateColumns: "repeat(24, 1fr)",
-                  height: "42px", borderRadius: "7px", overflow: "hidden",
-                  position: "relative", cursor: "crosshair",
-                }}
-                onMouseMove={(e) => {
-                  const r = e.currentTarget.getBoundingClientRect();
-                  setHoveredHour(Math.floor(((e.clientX - r.left) / r.width) * 24));
-                }}
-                onMouseLeave={() => setHoveredHour(null)}
-              >
-                {Array.from({ length: 24 }, (_, i) => {
-                  const lh = ((i + (p.offset - refOffset)) % 24 + 24) % 24;
-                  const isW = lh >= p.workStart && lh < p.workEnd;
-                  const isG = golden && i >= Math.ceil(golden.start) && i < Math.floor(golden.end);
-                  const isNow = Math.floor(p.time.decimal) === Math.floor(lh);
-                  const isSleep = lh >= 0 && lh < 7;
-                  const isH = hoveredHour === i;
-                  let bg = "rgba(255,255,255,0.012)";
-                  if (isSleep) bg = "rgba(0,0,0,0.22)";
-                  if (isW) bg = "rgba(255,255,255,0.055)";
-                  if (isG && isW) bg = "rgba(240,192,80,0.12)";
-                  if (isH) bg = isW ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.03)";
-                  return (
-                    <div key={i} style={{ background: bg, borderRight: "1px solid rgba(255,255,255,0.015)", position: "relative", transition: "background 0.1s" }}>
-                      {isNow && <div style={{ width: "2px", height: "100%", background: "#f0c050", borderRadius: "1px", position: "absolute", left: `${(p.time.decimal % 1) * 100}%`, top: 0, boxShadow: "0 0 6px rgba(240,192,80,0.3)", zIndex: 5 }} />}
-                      {isG && isW && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "2px", background: "#f0c050", opacity: 0.4 }} />}
-                    </div>
-                  );
-                })}
-
-                {/* Work hours border overlay (visual only) */}
-                {(() => {
-                  const sp = (wsBelg / 24) * 100;
-                  const raw = weBelg > wsBelg ? weBelg - wsBelg : 24 - wsBelg + weBelg;
-                  const wp = (raw / 24) * 100;
-                  return (
-                    <div style={{
-                      position: "absolute", left: `${sp}%`, width: `${wp}%`,
-                      top: 0, bottom: 0, pointerEvents: "none",
-                      borderLeft: "1.5px solid rgba(240,192,80,0.25)",
-                      borderRight: "1.5px solid rgba(240,192,80,0.25)",
-                      zIndex: 8,
-                    }} />
-                  );
-                })()}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: "14px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {p.name}
+                </div>
+                <div style={{ fontFamily: mono, fontSize: "10px", color: "#4a4540", marginTop: "1px" }}>
+                  <span style={{ color: "#7a7570" }}>{p.time.hours.toString().padStart(2, "0")}:{p.time.minutes.toString().padStart(2, "0")}</span>
+                  <span style={{ color: "#1a1510" }}> · </span>
+                  <span>{describeHours(p.workHours)}</span>
+                </div>
               </div>
             </div>
-          );
-        })}
+
+            {/* Timeline bar — clickable cells */}
+            <div
+              ref={el => tlRefs.current[p.id] = el}
+              style={{
+                display: "grid", gridTemplateColumns: "repeat(24, 1fr)",
+                height: "42px", borderRadius: "7px", overflow: "hidden",
+                position: "relative",
+              }}
+            >
+              {Array.from({ length: 24 }, (_, i) => {
+                const lh = ((i + (p.offset - refOffset)) % 24 + 24) % 24;
+                const localHour = Math.floor(lh);
+                const isW = p.workHours.includes(localHour);
+                const isG = golden && golden.allHours.includes(i);
+                const isNow = Math.floor(p.time.decimal) === localHour;
+                const isSleep = localHour >= 0 && localHour < 7;
+                const isH = hoveredHour === i;
+                let bg = "rgba(255,255,255,0.012)";
+                if (isSleep && !isW) bg = "rgba(0,0,0,0.22)";
+                if (isW) bg = "rgba(255,255,255,0.065)";
+                if (isG && isW) bg = "rgba(240,192,80,0.15)";
+                if (isH) bg = isW ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)";
+                return (
+                  <div
+                    key={i}
+                    onClick={() => toggleHour(p.id, localHour)}
+                    onMouseEnter={() => setHoveredHour(i)}
+                    onMouseLeave={() => setHoveredHour(null)}
+                    style={{
+                      background: bg,
+                      borderRight: "1px solid rgba(255,255,255,0.02)",
+                      position: "relative",
+                      transition: "background 0.1s",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isNow && <div style={{ width: "2px", height: "100%", background: "#f0c050", borderRadius: "1px", position: "absolute", left: `${(p.time.decimal % 1) * 100}%`, top: 0, boxShadow: "0 0 6px rgba(240,192,80,0.3)", zIndex: 5, pointerEvents: "none" }} />}
+                    {isG && isW && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "2px", background: "#f0c050", opacity: 0.5, pointerEvents: "none" }} />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
 
         {/* Hover tooltip */}
         <div style={{
           display: "grid", gridTemplateColumns: "minmax(100px, 150px) 1fr",
-          marginTop: "5px",
-          height: "22px",
+          marginTop: "5px", height: "22px",
           opacity: hoveredHour !== null ? 1 : 0,
-          transition: "opacity 0.12s ease",
-          pointerEvents: "none",
+          transition: "opacity 0.12s ease", pointerEvents: "none",
         }}>
           <div style={{ fontFamily: mono, fontSize: "11px", color: "#4a4540" }}>{fmtH(hoveredHour ?? 0)} {userCity}</div>
           <div style={{ display: "flex", gap: "10px", fontFamily: mono, fontSize: "11px", color: "#3a3530", flexWrap: "wrap" }}>
             {enriched.map(p => {
               const lh = (((hoveredHour ?? 0) + (p.offset - refOffset)) % 24 + 24) % 24;
-              const isW = lh >= p.workStart && lh < p.workEnd;
+              const localHour = Math.floor(lh);
+              const isW = p.workHours.includes(localHour);
               return <span key={p.id} style={{ color: isW ? "#7a7570" : "#1a1510" }}>{p.emoji} {fmtH(lh)} {isW ? "✓" : ""}</span>;
             })}
           </div>
@@ -507,8 +530,8 @@ export default function App() {
       {/* Legend */}
       <div style={{ padding: "6px 24px 24px", display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "center" }}>
         {[
-          { c: "rgba(255,255,255,0.055)", l: "Рабочие часы" },
-          { c: "rgba(240,192,80,0.12)", b: "rgba(240,192,80,0.3)", l: "Общее окно" },
+          { c: "rgba(255,255,255,0.065)", l: "Доступен" },
+          { c: "rgba(240,192,80,0.15)", b: "rgba(240,192,80,0.3)", l: "Общее окно" },
           { c: "rgba(0,0,0,0.22)", l: "Сон" },
           { c: "#f0c050", l: "Сейчас", line: true },
         ].map(i => (
@@ -532,12 +555,8 @@ export default function App() {
         ::-webkit-scrollbar{height:3px}
         ::-webkit-scrollbar-track{background:transparent}
         ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.04);border-radius:2px}
-        @media(max-width:480px){
-          h1{font-size:20px!important}
-        }
-        @media(max-width:360px){
-          h1{font-size:18px!important}
-        }
+        @media(max-width:480px){h1{font-size:20px!important}}
+        @media(max-width:360px){h1{font-size:18px!important}}
       `}</style>
     </div>
   );
