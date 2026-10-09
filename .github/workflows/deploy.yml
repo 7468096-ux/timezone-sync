@@ -2,8 +2,9 @@
 # are set), build the site pointing at that service, and publish the build to the gh-pages branch.
 #
 # GitHub Pages serves the gh-pages branch (repo Settings → Pages → "Deploy from a branch": gh-pages).
-# Sync needs two repository secrets: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
-# Without them the site is still published, just without the "Sync devices" button.
+# Sync needs the repository secret CLOUDFLARE_API_TOKEN. CLOUDFLARE_ACCOUNT_ID (secret or variable)
+# is optional: without it wrangler picks the token's account. Without the token the site is still
+# published, just without the "Sync devices" button.
 name: Deploy to GitHub Pages
 
 on:
@@ -23,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,10 +36,12 @@ jobs:
 
       - name: Deploy sync service to Cloudflare
         id: sync
-        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        if: env.CLOUDFLARE_API_TOKEN != ''
         working-directory: worker
         run: |
           set -euo pipefail
+          # an empty account id would be passed through as-is; let wrangler find the token's account instead
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || unset CLOUDFLARE_ACCOUNT_ID
           WR="npx --yes wrangler@4.149.0"
           db_id() { $WR d1 list --json | jq -r '.[] | select(.name == "tz-sync") | .uuid'; }
           ID="$(db_id)"
