@@ -24,7 +24,7 @@ function takeHash() {
   const hash = window.location.hash.slice(1);
   if (!hash) return null;
   const people = decodeConfig(hash);
-  history.replaceState(null, "", window.location.pathname + window.location.search);
+  try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
   return people || "invalid";
 }
 
@@ -50,6 +50,10 @@ const INITIAL = (() => {
 const detectTZ = () => {
   try { return normalizeTZ(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch { return "UTC"; }
 };
+
+// Build for the Claude artifact viewer: its page URL isn't shareable, so "share"
+// copies a config code and an "import code" field replaces opening links.
+const EMBED = import.meta.env.MODE === "artifact";
 
 const nextId = (people) => Math.max(0, ...people.map(p => p.id)) + 1;
 
@@ -159,18 +163,19 @@ export default function App() {
     try { localStorage.setItem(LS_PEOPLE, JSON.stringify(people)); } catch {}
   }, [people]);
 
+  const applyLink = (fromLink) => {
+    if (!fromLink) return;
+    if (fromLink === "invalid") { setNotice({ kind: "badlink" }); return; }
+    const current = peopleRef.current;
+    const backup = sameConfig(current, fromLink) ? null : current;
+    if (backup) rememberBackup(backup);
+    setPeople(fromLink);
+    setNotice({ kind: "link", backup });
+  };
+
   // A shared link pasted into an already open tab only changes the hash
   useEffect(() => {
-    const onHash = () => {
-      const fromLink = takeHash();
-      if (!fromLink) return;
-      if (fromLink === "invalid") { setNotice({ kind: "badlink" }); return; }
-      const current = peopleRef.current;
-      const backup = sameConfig(current, fromLink) ? null : current;
-      if (backup) rememberBackup(backup);
-      setPeople(fromLink);
-      setNotice({ kind: "link", backup });
-    };
+    const onHash = () => applyLink(takeHash());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -261,15 +266,25 @@ export default function App() {
   };
 
   const shareLink = async () => {
-    const url = window.location.origin + window.location.pathname + "#" + encodeConfig(people);
+    const text = EMBED
+      ? encodeConfig(people)
+      : window.location.origin + window.location.pathname + "#" + encodeConfig(people);
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // No clipboard API (plain http, old WebView, denied permission)
-      window.prompt("Скопируй ссылку:", url);
+      // No clipboard API (plain http, old WebView, denied permission): show it to copy by hand
+      setNotice({ kind: "share", text });
     }
+  };
+
+  const [importText, setImportText] = useState(null); // null = field hidden
+  const importCode = () => {
+    const raw = importText.trim();
+    if (!raw) return;
+    applyLink(decodeConfig(raw.includes("#") ? raw.slice(raw.indexOf("#") + 1) : raw) || "invalid");
+    setImportText(null);
   };
 
   const editing = form?.mode === "edit" ? people.find(p => p.id === form.id) : null;
@@ -319,15 +334,23 @@ export default function App() {
       {/* Notices */}
       {notice?.kind === "link" && (
         <div style={noticeBox}>
-          <span style={{ flex: 1, minWidth: "180px" }}>🔗 Открыта конфигурация из ссылки — она сохранена как твоя.</span>
+          <span style={{ flex: 1, minWidth: "180px" }}>🔗 Загружена конфигурация из {EMBED ? "кода" : "ссылки"} — она сохранена как твоя.</span>
           {notice.backup && <button onClick={restoreBackup} style={linkBtn}>Вернуть мою</button>}
           <button onClick={() => setNotice(null)} style={{ ...linkBtn, borderColor: "rgba(255,255,255,0.1)", color: "#8a857f" }}>OK</button>
         </div>
       )}
       {notice?.kind === "badlink" && (
         <div style={{ ...noticeBox, color: "#c86050", borderColor: "rgba(200,60,60,0.2)" }}>
-          <span style={{ flex: 1 }}>⚠ Ссылка повреждена или обрезана — показана твоя сохранённая конфигурация.</span>
+          <span style={{ flex: 1 }}>⚠ {EMBED ? "Код" : "Ссылка"} повреждён{EMBED ? "" : "а"} или обрезан{EMBED ? "" : "а"} — показана твоя сохранённая конфигурация.</span>
           <button onClick={() => setNotice(null)} style={{ ...linkBtn, borderColor: "rgba(255,255,255,0.1)", color: "#8a857f" }}>OK</button>
+        </div>
+      )}
+      {notice?.kind === "share" && (
+        <div style={noticeBox}>
+          <span>Скопируй {EMBED ? "код" : "ссылку"}:</span>
+          <input id="share-text" readOnly autoFocus value={notice.text} onFocus={e => e.target.select()}
+            style={{ ...fieldStyle, flex: 1, minWidth: "160px", fontFamily: mono, fontSize: "11px" }} />
+          <button onClick={() => setNotice(null)} style={{ ...linkBtn, borderColor: "rgba(255,255,255,0.1)", color: "#8a857f" }}>Готово</button>
         </div>
       )}
       {notice?.kind === "removed" && (
@@ -347,8 +370,24 @@ export default function App() {
           fontFamily: sans, fontSize: "13px", cursor: "pointer", transition: "all 0.25s",
           display: "flex", alignItems: "center", gap: "5px",
         }}>
-          {copied ? "✓ Скопировано" : "🔗 Поделиться ссылкой"}
+          {copied ? "✓ Скопировано" : EMBED ? "🔗 Скопировать код" : "🔗 Поделиться ссылкой"}
         </button>
+        {EMBED && importText === null && (
+          <button onClick={() => setImportText("")} style={{
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: "7px", padding: "6px 12px", color: "#9a958f",
+            fontFamily: sans, fontSize: "13px", cursor: "pointer",
+          }}>📥 Вставить код</button>
+        )}
+        {EMBED && importText !== null && (
+          <div style={{ display: "flex", gap: "6px", flex: "1 1 260px", minWidth: 0 }}>
+            <input id="import-code" autoFocus value={importText} onChange={e => setImportText(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") importCode(); if (e.key === "Escape") setImportText(null); }}
+              placeholder="код или ссылка" style={{ ...fieldStyle, flex: 1, minWidth: 0, padding: "6px 10px", fontFamily: mono, fontSize: "11px" }} />
+            <button onClick={importCode} style={linkBtn}>Загрузить</button>
+            <button onClick={() => setImportText(null)} style={{ ...linkBtn, borderColor: "rgba(255,255,255,0.1)", color: "#8a857f" }}>✕</button>
+          </div>
+        )}
         <div style={{ fontFamily: mono, fontSize: "11px", color: "#5a554f" }}>
           ячейка — вкл/выкл час · мышью можно протянуть · имя — изменить
         </div>
@@ -491,8 +530,10 @@ export default function App() {
                       paint.current = { pid: p.id, value: !isW };
                       setHour(p.id, localHour, !isW);
                     }}
-                    onPointerEnter={() => {
+                    onPointerEnter={e => {
                       setHoveredHour(i);
+                      // buttons check: a release outside the window/iframe never sends pointerup
+                      if (paint.current && !(e.buttons & 1)) paint.current = null;
                       if (paint.current?.pid === p.id) setHour(p.id, localHour, paint.current.value);
                     }}
                     // Touch: toggle on click (a scroll gesture doesn't produce one)
