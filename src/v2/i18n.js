@@ -1,8 +1,10 @@
-/* ── languages: the 10 most spoken (Ethnologue 2025, first + second language), in descending order ── */
+/* ── languages: the 10 most spoken (Ethnologue 2025, first + second language).
+   Menu order: English, Russian (pinned second), then the rest by number of speakers ── */
 
 // font: Google Fonts family for the script (null = the default DM Sans)
 export const LANGS = [
   { code: "en", locale: "en-US", native: "English", english: "English", font: null },
+  { code: "ru", locale: "ru-RU", native: "Русский", english: "Russian", font: "Golos Text:wght@400;500;600;700" },
   { code: "zh", locale: "zh-CN", native: "中文", english: "Chinese (Simplified)", font: "Noto Sans SC:wght@400;500;600;700" },
   { code: "hi", locale: "hi-IN", native: "हिन्दी", english: "Hindi", font: "Hind:wght@400;500;600;700" },
   { code: "es", locale: "es-ES", native: "Español", english: "Spanish", font: null },
@@ -10,7 +12,6 @@ export const LANGS = [
   { code: "fr", locale: "fr-FR", native: "Français", english: "French", font: null },
   { code: "bn", locale: "bn-BD", native: "বাংলা", english: "Bengali", font: "Hind Siliguri:wght@400;500;600;700" },
   { code: "pt", locale: "pt-BR", native: "Português", english: "Portuguese", font: null },
-  { code: "ru", locale: "ru-RU", native: "Русский", english: "Russian", font: "Golos Text:wght@400;500;600;700" },
   { code: "id", locale: "id-ID", native: "Bahasa Indonesia", english: "Indonesian", font: null },
 ];
 export const DEFAULT_LANG = "en";

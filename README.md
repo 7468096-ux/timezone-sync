@@ -26,8 +26,9 @@ Both share the logic in `src/lib` and the same saved data. After deploy: `/timez
 
 ## Languages
 
-English by default, plus the 9 next most spoken languages (Ethnologue 2025, first + second language), in that order:
-中文 · हिन्दी · Español · العربية · Français · বাংলা · Português · Русский · Bahasa Indonesia.
+English by default, plus the 9 next most spoken languages (Ethnologue 2025, first + second language).
+Menu order: English, Русский (pinned second), then by number of speakers:
+中文 · हिन्दी · Español · العربية · Français · বাংলা · Português · Bahasa Indonesia.
 The browser language is picked automatically (English if it isn't one of these); the switcher in the top corner remembers the choice.
 
 - Strings: `src/v2/i18n.js` (`STRINGS`). Missing keys fall back to English. Numbers, units and weekdays come from `Intl`.
