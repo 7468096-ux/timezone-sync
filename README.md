@@ -7,11 +7,42 @@ Find the perfect meeting window across timezones.
 ## Features
 
 - **Visual timeline** — see everyone's day at a glance (work, sleep, free)
-- **Golden window** — automatically finds when everyone overlaps
-- **Drag to adjust** — drag the edges of work-hour bars to change schedules in real time
-- **Share via link** — one click generates a URL with your setup encoded. Send to anyone
+- **Golden window** — finds when everyone overlaps (incl. across midnight and half-hour zones like India), shows all windows and "starts in …"
+- **Per-hour availability** — click a cell to toggle an hour (gaps allowed); drag with the mouse to paint several
+- **Edit / remove** — click a name to edit name, city, timezone; removal can be undone
+- **Any timezone** — popular zones sorted by UTC offset, plus every IANA zone the browser knows
+- **Share via link** — one click copies a URL with your setup encoded. Opening a link keeps a backup of your own setup ("Вернуть мою")
 - **Auto-save** — your configuration persists in localStorage between visits
 - **Zero backend** — pure static site, no server, no database, no auth needed
+
+## Two interfaces
+
+- `index.html` — the current interface (`src/v2/`): the answer first (best slot with everyone's local time and a
+  "copy for chat" invite), a larger scrollable day grid with local hours inside the cells, a "pick time / edit hours"
+  switch, a participant panel with hour presets, light and dark themes, and a "best partial" slot when no common window exists
+- `v1.html` — the original single-screen timeline (`src/App.jsx`, Russian only)
+
+Both share the logic in `src/lib` and the same saved data. After deploy: `/timezone-sync/` and `/timezone-sync/v1.html`.
+
+## Languages
+
+English by default, plus the 9 next most spoken languages (Ethnologue 2025, first + second language).
+Menu order: English, Русский (pinned second), then by number of speakers:
+中文 · हिन्दी · Español · العربية · Français · বাংলা · Português · Bahasa Indonesia.
+The browser language is picked automatically (English if it isn't one of these); the switcher in the top corner remembers the choice.
+
+- Strings: `src/v2/i18n.js` (`STRINGS`). Missing keys fall back to English. Numbers, units and weekdays come from `Intl`.
+- Typography per script (`src/v2/styles.css`, "per-script typography"): Golos Text for Cyrillic, Noto Sans SC for Chinese,
+  Hind / Hind Siliguri for Devanagari / Bengali, IBM Plex Sans Arabic for Arabic; only the active language's font is loaded.
+- Arabic is right-to-left: the page mirrors, times and the hour grid stay left-to-right.
+
+## Publish for everyone (GitHub Pages)
+
+`.github/workflows/deploy.yml` tests, builds and pushes `dist/` to the `gh-pages` branch on every push to `main`
+(Pages must serve that branch: **Settings → Pages → Deploy from a branch → gh-pages**). The site is at
+`https://<user>.github.io/timezone-sync/`, the original interface at `/timezone-sync/v1.html`.
+
+`npm run build:artifact` (v1) and `npm run build:artifact -- v2` build single-file pages for the Claude artifact viewer.
 
 ## Quick start (local)
 
@@ -20,9 +51,19 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173
+Open http://localhost:5173/timezone-sync/
 
-## Deploy to Vercel (2 minutes)
+Tests (pure logic, no extra deps):
+
+```bash
+npm test
+```
+
+## Deploy
+
+`vite.config.js` sets `base: '/timezone-sync/'` for GitHub Pages. For Vercel/Netlify (served from the root) change it to `'/'`.
+
+### Deploy to Vercel
 
 ### Option A: CLI
 ```bash
@@ -46,17 +87,15 @@ npm run build
 
 ## How sharing works
 
-Click **🔗 Поделиться ссылкой** — it encodes your current people/timezones/work hours into the URL hash (base64). When someone opens that link, they see your exact configuration. No server involved.
+Click **🔗 Поделиться ссылкой** — it encodes your current people/timezones/work hours into the URL hash. When someone opens that link, they see your exact configuration; the hash is then removed from the address bar so a reload doesn't undo their edits. No server involved.
 
-Example: `https://timesync.vercel.app/#eyJuIjoi0KLRiyIsImMi...`
+Format (`v2`): `#v2.name~city~tz~hours,…` — text is percent-encoded (commas/tildes in names are safe), `tz` is an index into the timezone table or an IANA name, `hours` is a 24-bit hex mask. Older link formats still open.
 
 ## Customize
 
-Edit `src/App.jsx`:
-- `DEFAULTS` array — change the default people shown on first visit
-- `COMMON_TZ` array — add/remove timezone options in the dropdown  
-- `FLAG_MAP` — map timezone IDs to emoji flags
-- Colors and styling — all inline, easy to tweak
+- `src/lib/config.js` — `DEFAULTS` (people on first visit), `TZ_TABLE` (popular zones; **only append** — share links store the index), `FLAG_MAP`, link format
+- `src/lib/time.js` — offsets, formatting, common-window search
+- `src/App.jsx` — UI; colors and styling are inline
 
 ## Tech stack
 

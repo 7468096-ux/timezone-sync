@@ -1,313 +1,341 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import {
+  getTimeInTZ, getOffset, fmtH, fmtTime, fmtOffset, localHourAt, dayShift, fmtDayShift,
+  describeHours, findCommonWindow, hoursRange, mod24,
+} from "./lib/time.js";
+import { MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig } from "./lib/config.js";
+import {
+  EMBED, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId,
+} from "./lib/storage.js";
 
-/* ── defaults ── */
-function hoursRange(start, end) {
-  const arr = [];
-  for (let i = start; i < end; i++) arr.push(i);
-  return arr;
+const INITIAL = loadInitial();
+
+const mono = "'JetBrains Mono', monospace";
+const sans = "'DM Sans', -apple-system, sans-serif";
+
+/* ── timezone select: common zones by offset + every IANA zone the browser knows ── */
+function TzSelect({ value, onChange, now, style }) {
+  const common = useMemo(() => sortedCommonTZ(now), [now.getUTCHours()]); // offsets only change on hour boundaries
+  const others = useMemo(() => {
+    const known = new Set(common.map(c => c.tz));
+    return allTimeZones().filter(tz => !known.has(tz));
+  }, [common]);
+  const inList = common.some(c => c.tz === value) || others.includes(value);
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)} style={style}>
+      {!inList && <option value={value}>{cityFor(value)} ({fmtOffset(getOffset(value, now))})</option>}
+      {common.map(c => <option key={c.tz} value={c.tz}>{c.label} ({fmtOffset(c.offset)})</option>)}
+      {others.length > 0 && (
+        <optgroup label="Все зоны">
+          {others.map(tz => <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>)}
+        </optgroup>
+      )}
+    </select>
+  );
 }
 
-const DEFAULTS = [
-  { id: 1, name: "Ты", city: "Belgrade", tz: "Europe/Belgrade", emoji: "🇷🇸", workHours: hoursRange(9, 21) },
-  { id: 2, name: "Берлин", city: "Berlin", tz: "Europe/Berlin", emoji: "🇩🇪", workHours: hoursRange(9, 18) },
-  { id: 3, name: "Сценарист", city: "Zürich", tz: "Europe/Zurich", emoji: "🇨🇭", workHours: hoursRange(10, 19) },
-  { id: 4, name: "Агентство", city: "San Francisco", tz: "America/Los_Angeles", emoji: "🇺🇸", workHours: hoursRange(9, 18) },
-];
-
-const FLAG_MAP = {
-  "US/Eastern": "🇺🇸", "US/Central": "🇺🇸", "America/Los_Angeles": "🇺🇸",
-  "America/Sao_Paulo": "🇧🇷", "Europe/London": "🇬🇧", "Europe/Paris": "🇫🇷",
-  "Europe/Berlin": "🇩🇪", "Europe/Belgrade": "🇷🇸", "Europe/Zurich": "🇨🇭",
-  "Europe/Moscow": "🇷🇺", "Asia/Dubai": "🇦🇪", "Asia/Kolkata": "🇮🇳",
-  "Asia/Shanghai": "🇨🇳", "Asia/Tokyo": "🇯🇵", "Australia/Sydney": "🇦🇺",
-  "Asia/Seoul": "🇰🇷", "Asia/Singapore": "🇸🇬", "Europe/Amsterdam": "🇳🇱",
-  "Pacific/Auckland": "🇳🇿",
+/* ── add / edit form ── */
+const labelStyle = { fontSize: "9px", color: "#6a655f", display: "block", marginBottom: "4px", fontFamily: mono, letterSpacing: "1.5px", textTransform: "uppercase" };
+const fieldStyle = {
+  background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.09)",
+  borderRadius: "6px", padding: "8px 11px", color: "#e8e4df",
+  fontFamily: sans, fontSize: "13px", outline: "none",
 };
 
-const COMMON_TZ = [
-  ["US Eastern", "US/Eastern"], ["US Central", "US/Central"], ["US Pacific", "America/Los_Angeles"],
-  ["São Paulo", "America/Sao_Paulo"], ["London", "Europe/London"], ["Paris", "Europe/Paris"],
-  ["Amsterdam", "Europe/Amsterdam"], ["Berlin", "Europe/Berlin"], ["Belgrade", "Europe/Belgrade"],
-  ["Zurich", "Europe/Zurich"], ["Moscow", "Europe/Moscow"], ["Dubai", "Asia/Dubai"],
-  ["Mumbai", "Asia/Kolkata"], ["Singapore", "Asia/Singapore"], ["Shanghai", "Asia/Shanghai"],
-  ["Seoul", "Asia/Seoul"], ["Tokyo", "Asia/Tokyo"], ["Sydney", "Australia/Sydney"],
-  ["Auckland", "Pacific/Auckland"],
-];
+function PersonForm({ initial, submitLabel, onSubmit, onCancel, now }) {
+  const [name, setName] = useState(initial.name);
+  // An auto-derived city is left empty so it follows the timezone if that changes
+  const [city, setCity] = useState(initial.city === cityFor(initial.tz) ? "" : initial.city);
+  const [tz, setTz] = useState(initial.tz);
 
-/* ── helpers ── */
-function getTimeInTZ(tz) {
-  const d = new Date();
-  const s = d.toLocaleString("en-US", { timeZone: tz, hour12: false, hour: "2-digit", minute: "2-digit" });
-  const [h, m] = s.split(":").map(Number);
-  return { hours: h, minutes: m, decimal: h + m / 60 };
+  const submit = () => {
+    const c = city.trim() || cityFor(tz);
+    onSubmit({ name: name.trim() || c, city: c, tz, emoji: flagFor(tz) });
+  };
+  const onKey = (e) => {
+    if (e.key === "Enter") submit();
+    if (e.key === "Escape") onCancel();
+  };
+
+  return (
+    <div onKeyDown={onKey} style={{
+      background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: "11px", padding: "16px", display: "flex",
+      gap: "9px", alignItems: "flex-end", flexWrap: "wrap",
+    }}>
+      <div>
+        <label style={labelStyle}>Имя</label>
+        <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Имя / роль" maxLength={40} style={{ ...fieldStyle, width: "130px" }} />
+      </div>
+      <div>
+        <label style={labelStyle}>Город</label>
+        <input value={city} onChange={e => setCity(e.target.value)} placeholder={cityFor(tz)} maxLength={40} style={{ ...fieldStyle, width: "110px" }} />
+      </div>
+      <div>
+        <label style={labelStyle}>Таймзона</label>
+        <TzSelect value={tz} onChange={setTz} now={now} style={{ ...fieldStyle, width: "190px" }} />
+      </div>
+      <button onClick={submit} style={{
+        background: "#f0c050", border: "none", borderRadius: "6px",
+        padding: "9px 16px", color: "#08080a", fontFamily: sans,
+        fontSize: "13px", fontWeight: 600, cursor: "pointer",
+      }}>{submitLabel}</button>
+      <button onClick={onCancel} title="Отмена (Esc)" style={{
+        background: "none", border: "1px solid rgba(255,255,255,0.09)",
+        borderRadius: "6px", padding: "9px 12px", color: "#6a655f",
+        fontFamily: sans, fontSize: "13px", cursor: "pointer",
+      }}>✕</button>
+    </div>
+  );
 }
 
-function getOffset(tz) {
-  const n = new Date();
-  const u = n.toLocaleString("en-US", { timeZone: "UTC" });
-  const t = n.toLocaleString("en-US", { timeZone: tz });
-  return (new Date(t) - new Date(u)) / 3600000;
-}
-
-function fmtH(h) {
-  const hh = ((Math.round(h) % 24) + 24) % 24;
-  return `${hh.toString().padStart(2, "0")}:00`;
-}
-
-// Encode workHours as 24-bit hex (6 chars): bit i = hour i available
-function encodeHours(hours) {
-  let mask = 0;
-  hours.forEach(h => { mask |= (1 << h); });
-  return mask.toString(16).padStart(6, "0");
-}
-
-function decodeHours(hex) {
-  const mask = parseInt(hex, 16);
-  const hours = [];
-  for (let i = 0; i < 24; i++) {
-    if (mask & (1 << i)) hours.push(i);
-  }
-  return hours;
-}
-
-function describeHours(hours) {
-  if (hours.length === 0) return "—";
-  const sorted = [...hours].sort((a, b) => a - b);
-  // Find contiguous ranges
-  const ranges = [];
-  let start = sorted[0], prev = sorted[0];
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i] === prev + 1) { prev = sorted[i]; }
-    else { ranges.push([start, prev + 1]); start = sorted[i]; prev = sorted[i]; }
-  }
-  ranges.push([start, prev + 1]);
-  return ranges.map(([s, e]) => `${fmtH(s)}–${fmtH(e)}`).join(", ");
-}
-
-/* ── URL hash encode/decode ── */
-const TZ_LIST = COMMON_TZ.map(([, v]) => v);
-
-function encodeConfig(people) {
-  const parts = people.map(p => {
-    const zi = TZ_LIST.indexOf(p.tz);
-    const tz = zi >= 0 ? zi : p.tz;
-    return `${p.name}~${p.city}~${tz}~${encodeHours(p.workHours)}`;
-  });
-  return encodeURIComponent(parts.join(","));
-}
-
-function decodeConfig(hash) {
-  try {
-    const decoded = decodeURIComponent(hash);
-    if (decoded.includes("~")) {
-      const parts = decoded.split(",");
-      return parts.map((part, i) => {
-        const segs = part.split("~");
-        const [name, city, tzRaw] = segs;
-        const tzIdx = parseInt(tzRaw);
-        const tz = !isNaN(tzIdx) && tzIdx < TZ_LIST.length ? TZ_LIST[tzIdx] : tzRaw;
-        let workHours;
-        if (segs.length === 5) {
-          // Old format: name~city~tz~start~end
-          workHours = hoursRange(parseInt(segs[3]), parseInt(segs[4]));
-        } else {
-          // New format: name~city~tz~hexHours
-          workHours = decodeHours(segs[3]);
-        }
-        return { id: i + 1, name, city, tz, emoji: FLAG_MAP[tz] || "🌍", workHours };
-      });
-    }
-    // Fallback: old base64+JSON format
-    const json = decodeURIComponent(atob(hash));
-    const arr = JSON.parse(json);
-    return arr.map((p, i) => ({
-      id: i + 1, name: p.n, city: p.c, tz: p.z,
-      emoji: FLAG_MAP[p.z] || "🌍",
-      workHours: p.h ? decodeHours(p.h) : hoursRange(p.s, p.e),
-    }));
-  } catch { return null; }
-}
-
-// Migrate old format (workStart/workEnd) to new (workHours)
-function migratePerson(p) {
-  if (p.workHours) return p;
-  return { ...p, workHours: hoursRange(p.workStart || 9, p.workEnd || 18) };
-}
-
-function loadPeople() {
-  const hash = window.location.hash.slice(1);
-  if (hash) {
-    const fromUrl = decodeConfig(hash);
-    if (fromUrl && fromUrl.length > 0) return fromUrl.map(migratePerson);
-  }
-  try {
-    const saved = localStorage.getItem("tz-sync-people");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(migratePerson);
-    }
-  } catch {}
-  return DEFAULTS;
+function fmtDuration(min) {
+  const h = Math.floor(min / 60), m = Math.round(min % 60);
+  return h ? `${h}ч${m ? ` ${m}м` : ""}` : `${m}м`;
 }
 
 /* ── component ── */
 export default function App() {
-  const [now, setNow] = useState(new Date());
-  const [people, setPeople] = useState(loadPeople);
+  const [now, setNow] = useState(() => new Date());
+  const [people, setPeople] = useState(INITIAL.people);
+  const [notice, setNotice] = useState(INITIAL.notice);
   const [hoveredHour, setHoveredHour] = useState(null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newCity, setNewCity] = useState("");
-  const [newTz, setNewTz] = useState("US/Eastern");
+  const [form, setForm] = useState(null); // null | { mode: "add" } | { mode: "edit", id }
   const [copied, setCopied] = useState(false);
-  const tlRefs = useRef({});
+  const paint = useRef(null);           // { pid, value } while dragging with the mouse
+  const lastPointer = useRef("mouse");
+  const peopleRef = useRef(people);
+  peopleRef.current = people;
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 15000);
     return () => clearInterval(t);
   }, []);
 
-  const detectedTZ = useMemo(() => {
-    try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
-    catch { return "Europe/Belgrade"; }
-  }, []);
-
-  const [refTZ, setRefTZ] = useState(() => {
-    try {
-      const saved = localStorage.getItem("tz-sync-ref");
-      if (saved && COMMON_TZ.some(([, v]) => v === saved)) return saved;
-    } catch {}
-    return COMMON_TZ.find(([, v]) => v === detectedTZ)?.[1] || detectedTZ;
-  });
-
   useEffect(() => {
-    try { localStorage.setItem("tz-sync-ref", refTZ); } catch {}
-  }, [refTZ]);
-
-  const userTZ = refTZ;
-  const userCity = useMemo(() => {
-    const entry = COMMON_TZ.find(([, v]) => v === userTZ);
-    if (entry) return entry[0];
-    return userTZ.split("/").pop().replace(/_/g, " ");
-  }, [userTZ]);
-  const refOffset = getOffset(userTZ);
-
-  useEffect(() => {
-    try { localStorage.setItem("tz-sync-people", JSON.stringify(people)); } catch {}
+    savePeople(people);
   }, [people]);
 
-  // Toggle hour for a person (in their local time)
-  const toggleHour = useCallback((pid, localHour) => {
-    setPeople(prev => prev.map(p => {
-      if (p.id !== pid) return p;
-      const has = p.workHours.includes(localHour);
-      const newHours = has
-        ? p.workHours.filter(h => h !== localHour)
-        : [...p.workHours, localHour].sort((a, b) => a - b);
-      return { ...p, workHours: newHours };
-    }));
+  const applyLink = (fromLink) => {
+    if (!fromLink) return;
+    if (fromLink === "invalid") { setNotice({ kind: "badlink" }); return; }
+    const current = peopleRef.current;
+    const backup = sameConfig(current, fromLink) ? null : current;
+    if (backup) rememberBackup(backup);
+    setPeople(fromLink);
+    setNotice({ kind: "link", backup });
+  };
+
+  // A shared link pasted into an already open tab only changes the hash
+  useEffect(() => {
+    const onHash = () => applyLink(takeHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  const enriched = useMemo(() =>
-    people.map(p => ({ ...p, time: getTimeInTZ(p.tz), offset: getOffset(p.tz) })),
-    [people, now]
-  );
+  useEffect(() => {
+    const stop = () => { paint.current = null; };
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => { window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); };
+  }, []);
 
-  // Golden window: find ref-timezone hours where ALL people are available
-  const golden = useMemo(() => {
-    const commonRefHours = [];
-    for (let refH = 0; refH < 24; refH++) {
-      const allAvail = enriched.every(p => {
-        const localH = ((refH + (p.offset - refOffset)) % 24 + 24) % 24;
-        return p.workHours.includes(Math.floor(localH));
-      });
-      if (allAvail) commonRefHours.push(refH);
-    }
-    if (commonRefHours.length === 0) return null;
-    // Find contiguous ranges, pick the longest
-    const ranges = [];
-    let start = commonRefHours[0], prev = commonRefHours[0];
-    for (let i = 1; i < commonRefHours.length; i++) {
-      if (commonRefHours[i] === prev + 1) { prev = commonRefHours[i]; }
-      else { ranges.push({ start, end: prev + 1 }); start = commonRefHours[i]; prev = commonRefHours[i]; }
-    }
-    ranges.push({ start, end: prev + 1 });
-    ranges.sort((a, b) => (b.end - b.start) - (a.end - a.start));
-    return { start: ranges[0].start, end: ranges[0].end, allHours: commonRefHours };
-  }, [enriched, refOffset]);
+  useEffect(() => {
+    if (notice?.kind !== "removed") return;
+    const t = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
-  const removePerson = (id) => people.length > 1 && setPeople(p => p.filter(x => x.id !== id));
-
-  const addPerson = () => {
-    if (!newName.trim()) return;
-    const id = Math.max(0, ...people.map(p => p.id)) + 1;
-    setPeople(prev => [...prev, {
-      id, name: newName.trim(), city: newCity.trim() || COMMON_TZ.find(t => t[1] === newTz)?.[0] || newTz,
-      tz: newTz, emoji: FLAG_MAP[newTz] || "🌍", workHours: hoursRange(9, 18),
-    }]);
-    setNewName(""); setNewCity(""); setShowAddForm(false);
+  const [refTZ, setRefTZ] = useState(loadRefTZ);
+  // Saved only on an explicit choice, so auto-detection keeps working after travel
+  const chooseRefTZ = (tz) => {
+    setRefTZ(tz);
+    saveRefTZ(tz);
   };
 
-  const shareLink = () => {
-    const url = window.location.origin + window.location.pathname + "#" + encodeConfig(people);
-    navigator.clipboard.writeText(url).then(() => {
+  const refCity = cityFor(refTZ);
+  const refOffset = getOffset(refTZ, now);
+  const refNow = getTimeInTZ(refTZ, now).decimal;
+  const nowCol = Math.floor(refNow);
+
+  const enriched = useMemo(() => people.map(p => {
+    const offset = getOffset(p.tz, now);
+    return { ...p, offset, diff: offset - refOffset, time: getTimeInTZ(p.tz, now), hourSet: new Set(p.workHours) };
+  }), [people, now, refOffset]);
+
+  const golden = useMemo(() => findCommonWindow(enriched, refOffset), [enriched, refOffset]);
+
+  // "now" / "in N" for the common window
+  const goldenStatus = useMemo(() => {
+    if (!golden) return null;
+    if (golden.allHours.includes(nowCol)) return { live: true };
+    const mins = Math.min(...golden.allHours.map(h => mod24(h - refNow) * 60));
+    return { live: false, in: fmtDuration(mins) };
+  }, [golden, nowCol, refNow]);
+
+  const setHour = (pid, hour, value) => setPeople(prev => prev.map(p => {
+    if (p.id !== pid || p.workHours.includes(hour) === value) return p;
+    const workHours = value ? [...p.workHours, hour].sort((a, b) => a - b) : p.workHours.filter(h => h !== hour);
+    return { ...p, workHours };
+  }));
+
+  const removePerson = (id) => {
+    const index = people.findIndex(p => p.id === id);
+    if (index < 0 || people.length <= 1) return;
+    setPeople(prev => prev.filter(p => p.id !== id));
+    setNotice({ kind: "removed", person: people[index], index });
+    if (form?.id === id) setForm(null);
+  };
+
+  const undoRemove = () => {
+    const { person, index } = notice;
+    setPeople(prev => {
+      const arr = [...prev];
+      arr.splice(Math.min(index, arr.length), 0, { ...person, id: nextId(prev) });
+      return arr;
+    });
+    setNotice(null);
+  };
+
+  const restoreBackup = () => {
+    setPeople(notice.backup);
+    setNotice(null);
+  };
+
+  const submitForm = (data) => {
+    if (form.mode === "add") {
+      setPeople(prev => [...prev, { id: nextId(prev), ...data, workHours: hoursRange(9, 18) }]);
+    } else {
+      setPeople(prev => prev.map(p => p.id === form.id ? { ...p, ...data } : p));
+    }
+    setForm(null);
+  };
+
+  const shareLink = async () => {
+    const text = EMBED
+      ? encodeConfig(people)
+      : window.location.origin + window.location.pathname + "#" + encodeConfig(people);
+    try {
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    } catch {
+      // No clipboard API (plain http, old WebView, denied permission): show it to copy by hand
+      setNotice({ kind: "share", text });
+    }
   };
 
-  const mono = "'JetBrains Mono', monospace";
-  const sans = "'DM Sans', -apple-system, sans-serif";
+  const [importText, setImportText] = useState(null); // null = field hidden
+  const importCode = () => {
+    const raw = importText.trim();
+    if (!raw) return;
+    applyLink(parseCode(raw));
+    setImportText(null);
+  };
+
+  const editing = form?.mode === "edit" ? people.find(p => p.id === form.id) : null;
+
+  const noticeBox = {
+    margin: "0 24px 14px", padding: "9px 14px", borderRadius: "9px",
+    display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap",
+    fontSize: "13px", color: "#a8a49f",
+    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+  };
+  const linkBtn = {
+    background: "none", border: "1px solid rgba(240,192,80,0.3)", borderRadius: "6px",
+    padding: "4px 10px", color: "#f0c050", fontFamily: sans, fontSize: "12px", cursor: "pointer",
+  };
 
   return (
     <div style={{
-      minHeight: "100vh", minHeight: "100dvh", background: "#08080a", color: "#e8e4df",
+      minHeight: "100dvh", background: "#08080a", color: "#e8e4df",
       fontFamily: sans, padding: 0, overflow: "auto",
     }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-
       {/* Header */}
-      <div style={{ padding: "28px 24px 18px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div style={{ padding: "28px 24px 18px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
         <div>
-          <div style={{ fontFamily: mono, fontSize: "11px", letterSpacing: "3px", textTransform: "uppercase", color: "#3a3530", marginBottom: "6px" }}>
+          <div style={{ fontFamily: mono, fontSize: "11px", letterSpacing: "3px", textTransform: "uppercase", color: "#6a655f", marginBottom: "6px" }}>
             Timezone Sync
           </div>
           <h1 style={{ fontSize: "28px", fontWeight: 300, margin: 0, letterSpacing: "-0.3px" }}>
             Найди окно
           </h1>
         </div>
-        <div style={{ textAlign: "right" }}>
+        <div style={{ textAlign: "right", minWidth: 0 }}>
           <div style={{ fontFamily: mono, fontSize: "32px", fontWeight: 700, color: "#f0c050", letterSpacing: "-1px", lineHeight: 1 }}>
-            {now.toLocaleTimeString("en-GB", { timeZone: userTZ, hour: "2-digit", minute: "2-digit" })}
+            {now.toLocaleTimeString("en-GB", { timeZone: refTZ, hour: "2-digit", minute: "2-digit" })}
           </div>
-          <div style={{ fontFamily: mono, fontSize: "11px", color: "#3a3530", marginTop: "5px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "4px" }}>
-            {now.toLocaleDateString(undefined, { timeZone: userTZ, weekday: "short", day: "numeric", month: "short" })}
-            <span style={{ color: "#1a1510" }}>·</span>
-            <select value={refTZ} onChange={e => setRefTZ(e.target.value)} style={{
-              background: "transparent", border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: "4px", padding: "1px 4px", color: "#7a7570",
+          <div style={{ fontFamily: mono, fontSize: "11px", color: "#6a655f", marginTop: "5px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "4px", flexWrap: "wrap" }}>
+            {now.toLocaleDateString("ru-RU", { timeZone: refTZ, weekday: "short", day: "numeric", month: "short" })}
+            <span style={{ color: "#3a3530" }}>·</span>
+            <TzSelect value={refTZ} onChange={chooseRefTZ} now={now} style={{
+              background: "transparent", border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "4px", padding: "1px 4px", color: "#9a958f", maxWidth: "170px",
               fontFamily: mono, fontSize: "11px", outline: "none", cursor: "pointer",
-            }}>
-              {COMMON_TZ.map(([l, v]) => <option key={v} value={v}>{l}</option>)}
-            </select>
+            }} />
           </div>
         </div>
       </div>
 
+      {/* Notices */}
+      {notice?.kind === "link" && (
+        <div style={noticeBox}>
+          <span style={{ flex: 1, minWidth: "180px" }}>🔗 Загружена конфигурация из {EMBED ? "кода" : "ссылки"} — она сохранена как твоя.</span>
+          {notice.backup && <button onClick={restoreBackup} style={linkBtn}>Вернуть мою</button>}
+          <button onClick={() => setNotice(null)} style={{ ...linkBtn, borderColor: "rgba(255,255,255,0.1)", color: "#8a857f" }}>OK</button>
+        </div>
+      )}
+      {notice?.kind === "badlink" && (
+        <div style={{ ...noticeBox, color: "#c86050", borderColor: "rgba(200,60,60,0.2)" }}>
+          <span style={{ flex: 1 }}>⚠ {EMBED ? "Код" : "Ссылка"} повреждён{EMBED ? "" : "а"} или обрезан{EMBED ? "" : "а"} — показана твоя сохранённая конфигурация.</span>
+          <button onClick={() => setNotice(null)} style={{ ...linkBtn, borderColor: "rgba(255,255,255,0.1)", color: "#8a857f" }}>OK</button>
+        </div>
+      )}
+      {notice?.kind === "share" && (
+        <div style={noticeBox}>
+          <span>Скопируй {EMBED ? "код" : "ссылку"}:</span>
+          <input id="share-text" readOnly autoFocus value={notice.text} onFocus={e => e.target.select()}
+            style={{ ...fieldStyle, flex: 1, minWidth: "160px", fontFamily: mono, fontSize: "11px" }} />
+          <button onClick={() => setNotice(null)} style={{ ...linkBtn, borderColor: "rgba(255,255,255,0.1)", color: "#8a857f" }}>Готово</button>
+        </div>
+      )}
+      {notice?.kind === "removed" && (
+        <div style={noticeBox}>
+          <span style={{ flex: 1 }}>Удалён: {notice.person.emoji} {notice.person.name}</span>
+          <button onClick={undoRemove} style={linkBtn}>Отменить</button>
+        </div>
+      )}
+
       {/* Share + hint */}
-      <div style={{ padding: "0 24px 14px", display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ padding: "0 24px 14px", display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={shareLink} style={{
           background: copied ? "rgba(80,176,128,0.12)" : "rgba(255,255,255,0.03)",
-          border: copied ? "1px solid rgba(80,176,128,0.25)" : "1px solid rgba(255,255,255,0.06)",
+          border: copied ? "1px solid rgba(80,176,128,0.25)" : "1px solid rgba(255,255,255,0.08)",
           borderRadius: "7px", padding: "6px 12px",
-          color: copied ? "#50b080" : "#5a554f",
+          color: copied ? "#50b080" : "#9a958f",
           fontFamily: sans, fontSize: "13px", cursor: "pointer", transition: "all 0.25s",
           display: "flex", alignItems: "center", gap: "5px",
         }}>
-          {copied ? "✓ Скопировано" : "🔗 Поделиться ссылкой"}
+          {copied ? "✓ Скопировано" : EMBED ? "🔗 Скопировать код" : "🔗 Поделиться ссылкой"}
         </button>
-        <div style={{ fontFamily: mono, fontSize: "11px", color: "#2a2520" }}>
-          нажми на ячейку — вкл/выкл час
+        {EMBED && importText === null && (
+          <button onClick={() => setImportText("")} style={{
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: "7px", padding: "6px 12px", color: "#9a958f",
+            fontFamily: sans, fontSize: "13px", cursor: "pointer",
+          }}>📥 Вставить код</button>
+        )}
+        {EMBED && importText !== null && (
+          <div style={{ display: "flex", gap: "6px", flex: "1 1 260px", minWidth: 0 }}>
+            <input id="import-code" autoFocus value={importText} onChange={e => setImportText(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") importCode(); if (e.key === "Escape") setImportText(null); }}
+              placeholder="код или ссылка" style={{ ...fieldStyle, flex: 1, minWidth: 0, padding: "6px 10px", fontFamily: mono, fontSize: "11px" }} />
+            <button onClick={importCode} style={linkBtn}>Загрузить</button>
+            <button onClick={() => setImportText(null)} style={{ ...linkBtn, borderColor: "rgba(255,255,255,0.1)", color: "#8a857f" }}>✕</button>
+          </div>
+        )}
+        <div style={{ fontFamily: mono, fontSize: "11px", color: "#5a554f" }}>
+          ячейка — вкл/выкл час · мышью можно протянуть · имя — изменить
         </div>
       </div>
 
@@ -317,29 +345,38 @@ export default function App() {
           margin: "0 24px 18px", padding: "12px 16px",
           background: "linear-gradient(135deg, rgba(240,192,80,0.09) 0%, rgba(240,160,50,0.03) 100%)",
           border: "1px solid rgba(240,192,80,0.16)", borderRadius: "11px",
-          display: "flex", alignItems: "center", gap: "12px",
+          display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap",
         }}>
           <div style={{
             width: "7px", height: "7px", borderRadius: "50%", background: "#f0c050",
             boxShadow: "0 0 10px rgba(240,192,80,0.5)", animation: "pulse 2s ease-in-out infinite", flexShrink: 0,
           }} />
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: "200px" }}>
             <div style={{ fontFamily: mono, fontSize: "11px", letterSpacing: "2px", color: "#f0c050", textTransform: "uppercase", marginBottom: "2px" }}>
               Общее окно
-            </div>
-            <div style={{ fontSize: "20px", fontWeight: 500 }}>
-              {fmtH(golden.start)} — {fmtH(golden.end)}
-              <span style={{ fontSize: "13px", color: "#5a554f", marginLeft: "10px", fontWeight: 300 }}>
-                по {userCity} · {golden.allHours.length}ч
+              <span style={{ letterSpacing: 0, textTransform: "none", color: goldenStatus.live ? "#50b080" : "#8a857f", marginLeft: "8px" }}>
+                {goldenStatus.live ? "● идёт сейчас" : `через ${goldenStatus.in}`}
               </span>
             </div>
+            <div style={{ fontSize: "20px", fontWeight: 500 }}>
+              {fmtH(golden.best.start)} — {fmtH(golden.best.end)}
+              <span style={{ fontSize: "13px", color: "#8a857f", marginLeft: "10px", fontWeight: 300 }}>
+                по {refCity} · {golden.best.end - golden.best.start}ч
+              </span>
+            </div>
+            {golden.ranges.length > 1 && (
+              <div style={{ fontFamily: mono, fontSize: "11px", color: "#8a857f", marginTop: "3px" }}>
+                ещё: {golden.ranges.filter(r => r !== golden.best).map(r => `${fmtH(r.start)}–${fmtH(r.end)}`).join(", ")}
+              </div>
+            )}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
-            {enriched.map(p => {
-              const ls = ((golden.start + (p.offset - refOffset)) % 24 + 24) % 24;
-              const le = ((golden.end + (p.offset - refOffset)) % 24 + 24) % 24;
-              return <div key={p.id} style={{ fontFamily: mono, fontSize: "11px", color: "#4a4540" }}>{p.emoji} {fmtH(ls)}–{fmtH(le)}</div>;
-            })}
+            {enriched.map(p => (
+              <div key={p.id} title={p.name} style={{ fontFamily: mono, fontSize: "11px", color: "#8a857f" }}>
+                {p.emoji} {fmtTime(golden.best.start + p.diff)}–{fmtTime(golden.best.end + p.diff)}
+                <span style={{ color: "#f0c050" }}>{fmtDayShift(dayShift(golden.best.start, p.diff))}</span>
+              </div>
+            ))}
           </div>
         </div>
       ) : (
@@ -353,17 +390,17 @@ export default function App() {
       )}
 
       {/* Timeline */}
-      <div style={{ padding: "0 24px", overflowX: "hidden" }}>
+      <div style={{ padding: "0 24px", overflowX: "hidden" }} onMouseLeave={() => setHoveredHour(null)}>
         {/* Hours header */}
         <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", marginBottom: "1px" }}>
           <div />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(24, 1fr)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(24, minmax(0, 1fr))" }}>
             {Array.from({ length: 24 }, (_, i) => (
               <div key={i} style={{
                 fontFamily: mono, fontSize: "10px",
-                color: i % 3 === 0 ? "#2a2520" : "transparent",
-                textAlign: "left", paddingLeft: "1px",
-              }}>{fmtH(i)}</div>
+                color: i % 3 === 0 ? (i === nowCol ? "#f0c050" : "#5a554f") : "transparent",
+                textAlign: "left", paddingLeft: "1px", whiteSpace: "nowrap", overflow: "visible",
+              }}>{String(i).padStart(2, "0")}<span className="mm">:00</span></div>
             ))}
           </div>
         </div>
@@ -382,68 +419,80 @@ export default function App() {
                 background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "17px", flexShrink: 0, position: "relative",
-              }}>
+              }} className="avatar">
                 {p.emoji}
                 {people.length > 1 && (
-                  <button onClick={() => removePerson(p.id)} className="rm" style={{
-                    position: "absolute", top: "-4px", right: "-4px",
-                    width: "13px", height: "13px", borderRadius: "50%",
-                    background: "#12090c", border: "1px solid rgba(200,60,60,0.25)",
-                    color: "#c83c3c", fontSize: "8px", cursor: "pointer",
+                  <button onClick={() => removePerson(p.id)} className="rm" aria-label={`Удалить ${p.name}`} title="Удалить" style={{
+                    position: "absolute", top: "-6px", right: "-6px",
+                    width: "18px", height: "18px", borderRadius: "50%", padding: 0,
+                    background: "#12090c", border: "1px solid rgba(200,60,60,0.35)",
+                    color: "#c83c3c", fontSize: "11px", lineHeight: 1, cursor: "pointer",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     opacity: 0, transition: "opacity 0.15s",
                   }}>×</button>
                 )}
               </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: "14px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <button
+                onClick={() => setForm({ mode: "edit", id: p.id })}
+                title={`${p.city} · ${fmtOffset(p.offset)}\n${describeHours(p.workHours)}\nНажми, чтобы изменить`}
+                style={{ minWidth: 0, background: "none", border: "none", padding: 0, textAlign: "left", color: "inherit", cursor: "pointer", fontFamily: sans }}
+              >
+                <span style={{ display: "block", fontSize: "14px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {p.name}
-                </div>
-                <div style={{ fontFamily: mono, fontSize: "10px", color: "#4a4540", marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  <span style={{ color: "#7a7570" }}>{p.time.hours.toString().padStart(2, "0")}:{p.time.minutes.toString().padStart(2, "0")}</span>
-                  <span style={{ color: "#1a1510" }}> · </span>
+                </span>
+                <span style={{ display: "block", fontFamily: mono, fontSize: "10px", color: "#6a655f", marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <span style={{ color: "#9a958f" }}>{fmtTime(p.time.decimal)}</span>
+                  <span style={{ color: "#3a3530" }}> · </span>
                   <span>{p.workHours.length}ч</span>
-                </div>
-              </div>
+                </span>
+              </button>
             </div>
 
-            {/* Timeline bar — clickable cells */}
-            <div
-              ref={el => tlRefs.current[p.id] = el}
-              style={{
-                display: "grid", gridTemplateColumns: "repeat(24, 1fr)",
-                height: "42px", borderRadius: "7px", overflow: "hidden",
-                position: "relative",
-              }}
-            >
+            {/* Timeline bar — click to toggle, mouse-drag to paint */}
+            <div style={{
+              display: "grid", gridTemplateColumns: "repeat(24, minmax(0, 1fr))",
+              height: "42px", borderRadius: "7px", overflow: "hidden",
+              position: "relative", userSelect: "none",
+            }}>
               {Array.from({ length: 24 }, (_, i) => {
-                const lh = ((i + (p.offset - refOffset)) % 24 + 24) % 24;
-                const localHour = Math.floor(lh);
-                const isW = p.workHours.includes(localHour);
+                const localHour = localHourAt(i, p.diff);
+                const isW = p.hourSet.has(localHour);
                 const isG = golden && golden.allHours.includes(i);
-                const isNow = Math.floor(p.time.decimal) === localHour;
-                const isSleep = localHour >= 0 && localHour < 7;
+                const isSleep = localHour < 7;
                 const isH = hoveredHour === i;
                 let bg = "rgba(255,255,255,0.012)";
-                if (isSleep && !isW) bg = "rgba(0,0,0,0.22)";
-                if (isW) bg = "rgba(255,255,255,0.065)";
+                if (isSleep && !isW) bg = "rgba(0,0,0,0.3)";
+                if (isW) bg = "rgba(255,255,255,0.075)";
                 if (isG && isW) bg = "rgba(240,192,80,0.15)";
-                if (isH) bg = isW ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)";
+                if (isH) bg = isW ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.045)";
                 return (
                   <div
                     key={i}
-                    onClick={() => toggleHour(p.id, localHour)}
-                    onMouseEnter={() => setHoveredHour(i)}
-                    onMouseLeave={() => setHoveredHour(null)}
+                    title={`${p.name}: ${fmtTime(i + p.diff)} — ${isW ? "доступен" : "занят"}`}
+                    onPointerDown={e => {
+                      lastPointer.current = e.pointerType;
+                      if (e.pointerType !== "mouse" || e.button !== 0) return;
+                      e.preventDefault();
+                      paint.current = { pid: p.id, value: !isW };
+                      setHour(p.id, localHour, !isW);
+                    }}
+                    onPointerEnter={e => {
+                      setHoveredHour(i);
+                      // buttons check: a release outside the window/iframe never sends pointerup
+                      if (paint.current && !(e.buttons & 1)) paint.current = null;
+                      if (paint.current?.pid === p.id) setHour(p.id, localHour, paint.current.value);
+                    }}
+                    // Touch: toggle on click (a scroll gesture doesn't produce one)
+                    onClick={() => { if (lastPointer.current !== "mouse") setHour(p.id, localHour, !isW); }}
                     style={{
                       background: bg,
-                      borderRight: "1px solid rgba(255,255,255,0.02)",
+                      borderRight: "1px solid rgba(255,255,255,0.025)",
                       position: "relative",
                       transition: "background 0.1s",
                       cursor: "pointer",
                     }}
                   >
-                    {isNow && <div style={{ width: "2px", height: "100%", background: "#f0c050", borderRadius: "1px", position: "absolute", left: `${(p.time.decimal % 1) * 100}%`, top: 0, boxShadow: "0 0 6px rgba(240,192,80,0.3)", zIndex: 5, pointerEvents: "none" }} />}
+                    {i === nowCol && <div style={{ width: "2px", height: "100%", background: "#f0c050", borderRadius: "1px", position: "absolute", left: `${(refNow % 1) * 100}%`, top: 0, boxShadow: "0 0 6px rgba(240,192,80,0.3)", zIndex: 5, pointerEvents: "none" }} />}
                     {isG && isW && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "2px", background: "#f0c050", opacity: 0.5, pointerEvents: "none" }} />}
                   </div>
                 );
@@ -455,92 +504,59 @@ export default function App() {
         {/* Hover tooltip */}
         <div style={{
           display: "grid", gridTemplateColumns: "130px 1fr",
-          marginTop: "5px", height: "22px",
+          marginTop: "5px", minHeight: "22px",
           opacity: hoveredHour !== null ? 1 : 0,
           transition: "opacity 0.12s ease", pointerEvents: "none",
         }}>
-          <div style={{ fontFamily: mono, fontSize: "11px", color: "#4a4540" }}>{fmtH(hoveredHour ?? 0)} {userCity}</div>
-          <div style={{ display: "flex", gap: "10px", fontFamily: mono, fontSize: "11px", color: "#3a3530", flexWrap: "wrap" }}>
+          <div style={{ fontFamily: mono, fontSize: "11px", color: "#8a857f" }}>{fmtH(hoveredHour ?? 0)} {refCity}</div>
+          <div style={{ display: "flex", gap: "10px", fontFamily: mono, fontSize: "11px", flexWrap: "wrap" }}>
             {enriched.map(p => {
-              const lh = (((hoveredHour ?? 0) + (p.offset - refOffset)) % 24 + 24) % 24;
-              const localHour = Math.floor(lh);
-              const isW = p.workHours.includes(localHour);
-              return <span key={p.id} style={{ color: isW ? "#7a7570" : "#1a1510" }}>{p.emoji} {fmtH(lh)} {isW ? "✓" : ""}</span>;
+              const h = hoveredHour ?? 0;
+              const isW = p.hourSet.has(localHourAt(h, p.diff));
+              return (
+                <span key={p.id} style={{ color: isW ? "#b8b4af" : "#4a4540" }}>
+                  {p.emoji} {fmtTime(h + p.diff)}{fmtDayShift(dayShift(h, p.diff))} {isW ? "✓" : ""}
+                </span>
+              );
             })}
           </div>
         </div>
       </div>
 
-      {/* Add person */}
+      {/* Add / edit person */}
       <div style={{ padding: "18px 24px" }}>
-        {!showAddForm ? (
-          <button onClick={() => setShowAddForm(true)} style={{
-            background: "none", border: "1px dashed rgba(255,255,255,0.06)",
-            borderRadius: "9px", padding: "12px 16px", color: "#2a2520",
+        {form ? (
+          <PersonForm
+            key={form.mode === "edit" ? `e${form.id}` : "add"}
+            now={now}
+            initial={editing || { name: "", city: cityFor(refTZ), tz: refTZ }}
+            submitLabel={editing ? "Сохранить" : "Добавить"}
+            onSubmit={submitForm}
+            onCancel={() => setForm(null)}
+          />
+        ) : people.length < MAX_PEOPLE && (
+          <button onClick={() => setForm({ mode: "add" })} className="add" style={{
+            background: "none", border: "1px dashed rgba(255,255,255,0.1)",
+            borderRadius: "9px", padding: "12px 16px", color: "#6a655f",
             fontFamily: sans, fontSize: "14px", cursor: "pointer", transition: "all 0.2s", width: "100%",
-          }}
-            onMouseEnter={e => { e.target.style.borderColor = "rgba(240,192,80,0.2)"; e.target.style.color = "#f0c050"; }}
-            onMouseLeave={e => { e.target.style.borderColor = "rgba(255,255,255,0.06)"; e.target.style.color = "#2a2520"; }}
-          >+ Добавить человека</button>
-        ) : (
-          <div style={{
-            background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: "11px", padding: "16px", display: "flex",
-            gap: "9px", alignItems: "flex-end", flexWrap: "wrap",
-          }}>
-            {[
-              { l: "Имя", v: newName, s: setNewName, ph: "Имя / роль", w: "120px" },
-              { l: "Город", v: newCity, s: setNewCity, ph: "Город", w: "100px" },
-            ].map(f => (
-              <div key={f.l}>
-                <label style={{ fontSize: "8px", color: "#3a3530", display: "block", marginBottom: "4px", fontFamily: mono, letterSpacing: "1.5px", textTransform: "uppercase" }}>{f.l}</label>
-                <input value={f.v} onChange={e => f.s(e.target.value)} placeholder={f.ph}
-                  onKeyDown={e => e.key === "Enter" && addPerson()}
-                  style={{
-                    background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.07)",
-                    borderRadius: "6px", padding: "8px 11px", color: "#e8e4df",
-                    fontFamily: sans, fontSize: "12px", outline: "none", width: f.w,
-                  }} />
-              </div>
-            ))}
-            <div>
-              <label style={{ fontSize: "8px", color: "#3a3530", display: "block", marginBottom: "4px", fontFamily: mono, letterSpacing: "1.5px", textTransform: "uppercase" }}>Таймзона</label>
-              <select value={newTz} onChange={e => setNewTz(e.target.value)} style={{
-                background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.07)",
-                borderRadius: "6px", padding: "8px 11px", color: "#e8e4df",
-                fontFamily: sans, fontSize: "12px", outline: "none", width: "140px",
-              }}>
-                {COMMON_TZ.map(([l, v]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </div>
-            <button onClick={addPerson} style={{
-              background: "#f0c050", border: "none", borderRadius: "6px",
-              padding: "8px 16px", color: "#08080a", fontFamily: sans,
-              fontSize: "12px", fontWeight: 600, cursor: "pointer",
-            }}>Добавить</button>
-            <button onClick={() => setShowAddForm(false)} style={{
-              background: "none", border: "1px solid rgba(255,255,255,0.07)",
-              borderRadius: "6px", padding: "8px 12px", color: "#3a3530",
-              fontFamily: sans, fontSize: "12px", cursor: "pointer",
-            }}>✕</button>
-          </div>
+          }}>+ Добавить человека</button>
         )}
       </div>
 
       {/* Legend */}
       <div style={{ padding: "6px 24px 24px", display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "center" }}>
         {[
-          { c: "rgba(255,255,255,0.065)", l: "Доступен" },
+          { c: "rgba(255,255,255,0.075)", l: "Доступен" },
           { c: "rgba(240,192,80,0.15)", b: "rgba(240,192,80,0.3)", l: "Общее окно" },
-          { c: "rgba(0,0,0,0.22)", l: "Сон" },
+          { c: "rgba(0,0,0,0.3)", b: "rgba(255,255,255,0.08)", l: "Сон (00–07)" },
           { c: "#f0c050", l: "Сейчас", line: true },
         ].map(i => (
           <div key={i.l} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
             {i.line
               ? <div style={{ width: "12px", height: "9px", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ width: "2px", height: "9px", background: i.c, borderRadius: "1px" }} /></div>
-              : <div style={{ width: "12px", height: "9px", background: i.c, borderRadius: "2px", border: i.b ? `1px solid ${i.b}` : "1px solid rgba(255,255,255,0.03)" }} />
+              : <div style={{ width: "12px", height: "9px", background: i.c, borderRadius: "2px", border: `1px solid ${i.b || "rgba(255,255,255,0.05)"}` }} />
             }
-            <span style={{ fontFamily: mono, fontSize: "11px", color: "#2a2520" }}>{i.l}</span>
+            <span style={{ fontFamily: mono, fontSize: "11px", color: "#6a655f" }}>{i.l}</span>
           </div>
         ))}
       </div>
@@ -548,13 +564,16 @@ export default function App() {
       <style>{`
         @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-        div:hover>.rm{opacity:1!important}
-        select option{background:#10101a;color:#e8e4df}
-        input::placeholder{color:#1a1510}
-        input:focus,select:focus{border-color:rgba(240,192,80,0.25)!important}
+        .avatar:hover>.rm,.rm:focus-visible{opacity:1!important}
+        @media(hover:none){.rm{opacity:.75!important}}
+        .add:hover{border-color:rgba(240,192,80,0.3)!important;color:#f0c050!important}
+        select option,select optgroup{background:#10101a;color:#e8e4df}
+        input::placeholder{color:#4a4540}
+        input:focus,select:focus{border-color:rgba(240,192,80,0.35)!important}
         ::-webkit-scrollbar{height:3px}
         ::-webkit-scrollbar-track{background:transparent}
         ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.04);border-radius:2px}
+        @media(max-width:600px){.mm{display:none}}
         @media(max-width:480px){h1{font-size:20px!important}}
         @media(max-width:360px){h1{font-size:18px!important}}
       `}</style>
