@@ -20,13 +20,14 @@ export function savePeople(people) {
 
 // Reads the config from the URL hash and removes the hash, so that a reload
 // doesn't throw away edits made after opening a shared link.
-// Returns null (no hash), "invalid" (broken link) or the people list.
+// Returns null (no hash), "invalid" (broken link), { sync: key } (device-sync link) or the people list.
 export function takeHash() {
   const hash = window.location.hash.slice(1);
   if (!hash) return null;
-  const people = decodeConfig(hash);
   try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
-  return people || "invalid";
+  const sync = hash.match(/^sync\.([A-Za-z0-9_-]{22})$/);
+  if (sync) return { sync: sync[1] };
+  return decodeConfig(hash) || "invalid";
 }
 
 // Accepts a bare code or a full link; returns the people list or "invalid"
@@ -48,6 +49,7 @@ export function loadInitial(makeDefaults = () => DEFAULTS) {
   const fromLink = takeHash();
   const fallback = () => saved || sanitizePeople(makeDefaults()) || DEFAULTS;
   if (fromLink === "invalid") return { people: fallback(), notice: { kind: "badlink" } };
+  if (fromLink?.sync) return { people: fallback(), notice: { kind: "sync", key: fromLink.sync } };
   if (fromLink) {
     const backup = saved && !sameConfig(saved, fromLink) ? saved : null;
     if (backup) rememberBackup(backup);

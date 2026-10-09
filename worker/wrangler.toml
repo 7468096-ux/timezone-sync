@@ -1,0 +1,18 @@
+# Sync service for Timezone Sync: stores one encrypted blob per sync key.
+# Deployed by .github/workflows/deploy.yml; __D1_ID__ is filled in there.
+name = "tz-sync"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[vars]
+ALLOWED_ORIGINS = "https://7468096-ux.github.io,http://localhost:5173,http://localhost:4173"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tz-sync"
+database_id = "__D1_ID__"
+
+# daily cleanup of setups nobody has touched for a year
+[triggers]
+crons = ["17 3 * * *"]
