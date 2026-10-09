@@ -1,6 +1,9 @@
-# Builds, tests and publishes the site on every push to main.
-# GitHub Pages serves the gh-pages branch (repo Settings → Pages → "Deploy from a branch": gh-pages),
-# so this job replaces that branch's contents with the fresh build in dist/.
+# On every push to main: test, deploy the device-sync service to Cloudflare (when its secrets
+# are set), build the site pointing at that service, and publish the build to the gh-pages branch.
+#
+# GitHub Pages serves the gh-pages branch (repo Settings → Pages → "Deploy from a branch": gh-pages).
+# Sync needs two repository secrets: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+# Without them the site is still published, just without the "Sync devices" button.
 name: Deploy to GitHub Pages
 
 on:
@@ -18,6 +21,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,7 +32,33 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+      - name: Deploy sync service to Cloudflare
+        id: sync
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        working-directory: worker
+        run: |
+          set -euo pipefail
+          WR="npx --yes wrangler@4.149.0"
+          db_id() { $WR d1 list --json | jq -r '.[] | select(.name == "tz-sync") | .uuid'; }
+          ID="$(db_id)"
+          if [ -z "$ID" ]; then
+            # create outside this folder so wrangler doesn't try to edit wrangler.toml
+            (cd "$RUNNER_TEMP" && $WR d1 create tz-sync)
+            ID="$(db_id)"
+          fi
+          sed -i "s/__D1_ID__/$ID/" wrangler.toml
+          $WR d1 execute tz-sync --remote --file schema.sql --yes
+          $WR deploy | tee "$RUNNER_TEMP/deploy.log"
+          URL="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -1)"
+          test -n "$URL" || { echo "No workers.dev URL in deploy output"; exit 1; }
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Sync service: $URL" >> "$GITHUB_STEP_SUMMARY"
+
       - run: npm run build
+        env:
+          VITE_SYNC_URL: ${{ steps.sync.outputs.url }}
+
       - name: Publish dist/ to gh-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

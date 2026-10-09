@@ -117,7 +117,7 @@ export default function App() {
   }, [people]);
 
   const applyLink = (fromLink) => {
-    if (!fromLink) return;
+    if (!fromLink || fromLink.sync) return;
     if (fromLink === "invalid") { setNotice({ kind: "badlink" }); return; }
     const current = peopleRef.current;
     const backup = sameConfig(current, fromLink) ? null : current;

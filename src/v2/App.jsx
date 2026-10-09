@@ -11,6 +11,10 @@ import {
   LANGS, langInfo, detectLang, saveLang, makeT, splitTemplate, fmtUnit, fmtDuration, fmtWeekday, fmtLongDate,
   ensureFont, makeDefaults,
 } from "./i18n.js";
+import {
+  SYNC_URL, newKey, parseKey, keyLink, pull as syncPull, push as syncPush, loadKey, saveKey, loadMeta, saveMeta,
+} from "../lib/sync.js";
+import qrcode from "qrcode-generator";
 import "./styles.css";
 
 const START_LANG = detectLang();
@@ -210,6 +214,83 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
   );
 }
 
+/* ── device sync sheet ── */
+const SYNC_AVAILABLE = !!SYNC_URL && !EMBED;
+
+function QR({ text }) {
+  const svg = useMemo(() => {
+    const qr = qrcode(0, "M");
+    qr.addData(text);
+    qr.make();
+    return qr.createSvgTag({ cellSize: 4, margin: 3, scalable: true });
+  }, [text]);
+  return <div className="qr" role="img" aria-label="QR" dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
+function SyncSheet({ syncKey, status, onEnable, onJoin, onDisconnect, onClose }) {
+  const { t, lang } = useI18n();
+  const [code, setCode] = useState(null); // null = field hidden
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const link = syncKey ? keyLink(syncKey) : "";
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch { document.getElementById("sync-link")?.select(); }
+  };
+  const statusText = status.state === "busy" ? t("syncStatusBusy")
+    : status.state === "offline" ? t("syncStatusOffline")
+    : status.at ? t("syncStatusOk", { time: new Date(status.at).toLocaleTimeString(`${langInfo(lang).locale}-u-nu-latn`, { hour: "2-digit", minute: "2-digit" }) })
+    : "";
+  return (
+    <div className="backdrop" onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="sync-title">
+        <h2 id="sync-title">{t("syncTitle")}</h2>
+        {!syncKey ? (
+          <>
+            <p className="sheet-text">{t("syncIntro")}</p>
+            {status.state === "notfound" && <div className="notice bad" role="alert"><span>{t("syncNotFound")}</span></div>}
+            {code === null ? (
+              <div className="sheet-actions">
+                <button className="btn primary" onClick={onEnable}>{t("syncEnable")}</button>
+                <button className="btn ghost" onClick={() => setCode("")}>{t("syncHaveCode")}</button>
+              </div>
+            ) : (
+              <div className="import">
+                <input id="sync-code" className="field mono" autoFocus value={code} placeholder={t("syncCodePh")}
+                  onChange={e => setCode(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && parseKey(code)) onJoin(parseKey(code)); }} />
+                <button className="btn small primary" disabled={!parseKey(code)} onClick={() => onJoin(parseKey(code))}>{t("syncConnect")}</button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="sheet-text">{t("syncScan")}</p>
+            <div className="sync-pair">
+              <QR text={link} />
+              <div className="sync-side">
+                <input id="sync-link" className="field mono" readOnly value={link} onFocus={e => e.target.select()} />
+                <button className={`btn small${copied ? " done" : ""}`} onClick={copyLink}>{copied ? t("copied") : t("syncCopyLink")}</button>
+                <p className="sync-warn">{t("syncKeepSecret")}</p>
+              </div>
+            </div>
+            <div className={`sync-status ${status.state}`} role="status">{statusText}</div>
+          </>
+        )}
+        <div className="sheet-actions">
+          {syncKey && <button className="btn ghost danger" onClick={onDisconnect}>{t("syncDisconnect")}</button>}
+          <span className="spacer" />
+          <button className="btn ghost" onClick={onClose}>{t("close")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── app ── */
 export default function App() {
   const [lang, setLang] = useState(START_LANG);
@@ -225,6 +306,9 @@ export default function App() {
   const [copied, setCopied] = useState(null);        // "share" | "invite"
   const [importText, setImportText] = useState(null);
   const [refTZ, setRefTZ] = useState(loadRefTZ);
+  const [syncKey, setSyncKey] = useState(() => (SYNC_AVAILABLE ? loadKey() : null));
+  const [syncStatus, setSyncStatus] = useState({ state: "idle", at: loadMeta().syncedAt || 0 });
+  const [syncOpen, setSyncOpen] = useState(false);
   const drag = useRef(null);                         // { kind: "paint", pid, value } | { kind: "select", anchor }
   const lastPointer = useRef("mouse");
   const scroller = useRef(null);
@@ -236,6 +320,110 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
   useEffect(() => { savePeople(people); }, [people]);
+
+  /* ── device sync: push local edits, pull the other device's ── */
+  const meta = useRef(loadMeta());          // { localAt, remoteAt, syncedAt }
+  const fromRemote = useRef(false);         // the next people change came from the server
+  const firstPeople = useRef(true);
+  const pushTimer = useRef(null);
+  const busy = useRef(false);
+  const keyRef = useRef(syncKey);
+  keyRef.current = syncKey;
+  const writeMeta = (m) => { meta.current = { ...meta.current, ...m }; saveMeta(meta.current); };
+
+  const doPush = async () => {
+    const key = keyRef.current;
+    if (!key) return;
+    setSyncStatus(s => ({ ...s, state: "busy" }));
+    try {
+      const at = meta.current.localAt || Date.now();
+      const r = await syncPush(key, { people: peopleRef.current }, at);
+      if (r.ok) { writeMeta({ localAt: at, remoteAt: at, syncedAt: Date.now() }); setSyncStatus({ state: "ok", at: Date.now() }); }
+      else await doPull(); // the other device was newer
+    } catch { setSyncStatus(s => ({ ...s, state: "offline" })); }
+  };
+
+  // joining: true when this device just entered a key and must take the remote copy
+  const doPull = async (joining = false) => {
+    const key = keyRef.current;
+    if (!key || busy.current) return;
+    busy.current = true;
+    setSyncStatus(s => ({ ...s, state: "busy" }));
+    try {
+      const r = await syncPull(key);
+      if (!r.found) {
+        if (joining) { setSyncKey(null); saveKey(null); saveMeta(null); setSyncStatus({ state: "notfound", at: 0 }); return; }
+        busy.current = false;
+        await doPush();
+        return;
+      }
+      const { localAt, remoteAt } = meta.current;
+      const people = sanitizePeople(r.payload?.people);
+      if (r.updatedAt > remoteAt && (joining || r.updatedAt > localAt) && people) {
+        fromRemote.current = true;
+        setPeople(people);
+        setSel(null);
+        writeMeta({ localAt: r.updatedAt, remoteAt: r.updatedAt, syncedAt: Date.now() });
+        setSyncStatus({ state: "ok", at: Date.now() });
+      } else if (localAt > Math.max(remoteAt, r.updatedAt)) {
+        busy.current = false;
+        await doPush();
+        return;
+      } else {
+        writeMeta({ syncedAt: Date.now() });
+        setSyncStatus({ state: "ok", at: Date.now() });
+      }
+    } catch { setSyncStatus(s => ({ ...s, state: "offline" })); }
+    finally { busy.current = false; }
+  };
+
+  // every local edit: remember when, push a moment later
+  useEffect(() => {
+    if (firstPeople.current) { firstPeople.current = false; return; }
+    if (fromRemote.current) { fromRemote.current = false; return; }
+    writeMeta({ localAt: Date.now() });
+    if (!keyRef.current) return;
+    clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(doPush, 800);
+  }, [people]);
+
+  // pull on start, every 20 s while visible, and when the tab comes back or the network returns
+  useEffect(() => {
+    if (!syncKey) return;
+    const tick = () => { if (document.visibilityState === "visible") doPull(); };
+    tick();
+    const iv = setInterval(tick, 20000);
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("online", tick);
+    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", tick); window.removeEventListener("online", tick); };
+  }, [syncKey]);
+
+  const enableSync = () => {
+    const key = newKey();
+    saveKey(key);
+    keyRef.current = key;
+    writeMeta({ localAt: meta.current.localAt || Date.now(), remoteAt: 0 });
+    setSyncKey(key);
+    doPush();
+  };
+  const joinSync = (key) => {
+    saveKey(key);
+    keyRef.current = key;
+    meta.current = { localAt: 0, remoteAt: 0, syncedAt: 0 };
+    saveMeta(meta.current);
+    setNotice(null);
+    setSyncKey(key);
+    setSyncOpen(true);
+    doPull(true);
+  };
+  const disconnectSync = () => {
+    saveKey(null);
+    saveMeta(null);
+    meta.current = { localAt: 0, remoteAt: 0, syncedAt: 0 };
+    keyRef.current = null;
+    setSyncKey(null);
+    setSyncStatus({ state: "idle", at: 0 });
+  };
   useEffect(() => {
     const stop = () => { drag.current = null; };
     window.addEventListener("pointerup", stop);
@@ -250,6 +438,7 @@ export default function App() {
 
   const applyLink = (fromLink) => {
     if (!fromLink) return;
+    if (fromLink.sync) { if (SYNC_AVAILABLE) setNotice({ kind: "sync", key: fromLink.sync }); return; }
     if (fromLink === "invalid") { setNotice({ kind: "badlink" }); return; }
     const current = peopleRef.current;
     const backup = sameConfig(current, fromLink) ? null : current;
@@ -444,6 +633,13 @@ export default function App() {
           <button className="btn small ghost" onClick={() => setNotice(null)}>{t("gotIt")}</button>
         </div>
       )}
+      {notice?.kind === "sync" && SYNC_AVAILABLE && (
+        <div className="notice" role="alertdialog" aria-labelledby="sync-ask">
+          <span><b id="sync-ask">{t("syncAskTitle")}</b> {notice.key === syncKey ? "" : t("syncAskText")}</span>
+          <button className="btn small primary" onClick={() => joinSync(notice.key)}>{t("syncConnect")}</button>
+          <button className="btn small ghost" onClick={() => setNotice(null)}>{t("cancel")}</button>
+        </div>
+      )}
       {notice?.kind === "copy" && (
         <div className="notice">
           <span style={{ flex: "0 0 auto", minWidth: 0 }}>{t("copyManually")}</span>
@@ -525,6 +721,15 @@ export default function App() {
         <span className="spacer" />
         {importText === null ? (
           <>
+            {SYNC_AVAILABLE && (
+              <button className={`btn small sync-btn${syncKey ? " on" : ""}`} onClick={() => setSyncOpen(true)}>
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4 4 0 0 1-.5 9.5H7z" />
+                  {syncKey && <path d="M9.5 13.5l2 2 3.5-3.5" />}
+                </svg>
+                {syncKey ? (syncStatus.state === "offline" ? "…" : t("syncOn")) : t("syncBtn")}
+              </button>
+            )}
             {EMBED && <button className="btn small" onClick={() => setImportText("")}>{t("pasteCode")}</button>}
             <button className={`btn small${copied === "share" ? " done" : ""}`} onClick={share}>
               {copied === "share" ? t("copied") : EMBED ? t("copyCode") : t("shareLink")}
@@ -588,6 +793,11 @@ export default function App() {
           onDelete={() => removePerson(editor.id)}
           onClose={() => setEditor(null)}
         />
+      )}
+
+      {syncOpen && (
+        <SyncSheet syncKey={syncKey} status={syncStatus}
+          onEnable={enableSync} onJoin={joinSync} onDisconnect={disconnectSync} onClose={() => setSyncOpen(false)} />
       )}
 
       {toast && (

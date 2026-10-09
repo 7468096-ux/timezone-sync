@@ -106,3 +106,18 @@ Format (`v2`): `#v2.name~city~tz~hours,…` — text is percent-encoded (commas/
 ## License
 
 MIT
+
+## Device sync
+
+"Sync devices" keeps a person's phone and computer on the same setup, without accounts.
+
+- Turning it on creates a random 128-bit key on the device and shows it as a QR code / link (`#sync.<key>`).
+  Opening that link on another device (and confirming) connects it.
+- Data is encrypted on the device (AES-GCM, key derived from the sync key). The server stores only
+  `SHA-256(key)` as the record id plus ciphertext, so it can't read names, cities or hours. Last edit wins.
+- Devices push edits ~1 s after a change and pull every 20 s while the page is visible, on focus and when back online.
+- Server: `worker/` — a Cloudflare Worker with a D1 (SQLite) table, no listing endpoint, records expire
+  a year after the last write. Local run: `npx wrangler d1 execute tz-sync --local --file schema.sql && npx wrangler dev`
+  (inside `worker/`), then build the site with `VITE_SYNC_URL=http://127.0.0.1:8787`.
+- Deploy: the GitHub workflow deploys the Worker when the repo secrets `CLOUDFLARE_API_TOKEN` and
+  `CLOUDFLARE_ACCOUNT_ID` exist, and builds the site with its URL. Without them the button is hidden.

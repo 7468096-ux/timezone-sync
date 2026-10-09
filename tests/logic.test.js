@@ -145,3 +145,17 @@ test("best partial range keeps the same people free throughout", () => {
   assert.deepEqual(r.best, { start: 9, end: 13 });
   assert.deepEqual(r.missing, [1]);
 });
+
+test("sync: key parsing and end-to-end encryption roundtrip", async () => {
+  const { newKey, parseKey, encryptPayload, decryptPayload } = await import("../src/lib/sync.js");
+  const k = newKey();
+  assert.match(k, /^[A-Za-z0-9_-]{22}$/);
+  assert.equal(parseKey(`https://x.github.io/timezone-sync/#sync.${k}`), k);
+  assert.equal(parseKey(`  ${k} `), k);
+  assert.equal(parseKey("v2.Ann~Paris~5~0003fe"), null);
+  const payload = { people: [{ id: 1, name: "Аня", tz: "Europe/Paris", workHours: [9, 10] }] };
+  const box = await encryptPayload(k, payload);
+  assert.ok(!box.data.includes("Аня") && !atob(box.data).includes("Paris"));
+  assert.deepEqual(await decryptPayload(k, box), payload);
+  await assert.rejects(() => decryptPayload(newKey(), box)); // wrong key can't read it
+});
