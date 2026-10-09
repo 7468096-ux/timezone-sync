@@ -1,4 +1,4 @@
-// Timezone Sync — device sync service.
+// Timezone Sync on Cloudflare: the site (static assets) plus the device-sync API.
 //   GET /v1/s/:id  → { iv, data, updatedAt } | 404
 //   PUT /v1/s/:id  ← { iv, data, updatedAt } → { updatedAt } | 409 { updatedAt } when the stored copy is newer
 // :id is SHA-256(sync key) in hex; data is encrypted on the device. No listing endpoint exists.
@@ -24,10 +24,21 @@ const json = (body, status, headers) =>
 
 export default {
   async fetch(req, env) {
+    const url = new URL(req.url);
+    // www → bare domain
+    if (env.CANONICAL_HOST && url.hostname === `www.${env.CANONICAL_HOST}`) {
+      url.hostname = env.CANONICAL_HOST;
+      return Response.redirect(url.toString(), 301);
+    }
+    // everything outside the API is the site
+    if (!url.pathname.startsWith("/v1/")) {
+      return env.ASSETS ? env.ASSETS.fetch(req) : new Response("Not found", { status: 404 });
+    }
+
     const cors = corsHeaders(req, env);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
 
-    const m = new URL(req.url).pathname.match(/^\/v1\/s\/([0-9a-f]{64})$/);
+    const m = url.pathname.match(/^\/v1\/s\/([0-9a-f]{64})$/);
     if (!m) return json({ error: "not_found" }, 404, cors);
     const id = m[1];
 

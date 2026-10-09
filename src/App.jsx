@@ -5,9 +5,10 @@ import {
 } from "./lib/time.js";
 import { MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig } from "./lib/config.js";
 import {
-  EMBED, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId,
+  EMBED, consumeMigration, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId,
 } from "./lib/storage.js";
 
+consumeMigration();
 const INITIAL = loadInitial();
 
 const mono = "'JetBrains Mono', monospace";

@@ -20,6 +20,32 @@ export function savePeople(people) {
 
 // Reads the config from the URL hash and removes the hash, so that a reload
 // doesn't throw away edits made after opening a shared link.
+/* ── moving from the old address ──
+   The old site (github.io) can't share localStorage with the new domain, so it forwards its data once
+   as "#migrate.<base64url JSON {p: people, r: refTZ, l: lang, k: sync key, m: sync meta}>".
+   It is applied only if this browser has nothing saved here yet, so it never overwrites newer data.
+   Must run before anything reads localStorage (call at the top of the app module). */
+export function consumeMigration() {
+  const hash = window.location.hash.slice(1);
+  if (!hash.startsWith("migrate.")) return false;
+  try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
+  try {
+    if (localStorage.getItem(LS_PEOPLE)) return false;
+    const b64 = hash.slice(8).replace(/-/g, "+").replace(/_/g, "/");
+    const json = new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+    const d = JSON.parse(json);
+    const people = sanitizePeople(d.p);
+    if (people) localStorage.setItem(LS_PEOPLE, JSON.stringify(people));
+    if (typeof d.r === "string" && isValidTZ(normalizeTZ(d.r))) localStorage.setItem(LS_REF, normalizeTZ(d.r));
+    if (typeof d.l === "string" && /^[a-z]{2}$/.test(d.l)) localStorage.setItem("tz-sync-lang", d.l);
+    if (typeof d.k === "string" && /^[A-Za-z0-9_-]{22}$/.test(d.k)) {
+      localStorage.setItem("tz-sync-device-key", d.k);
+      if (d.m && typeof d.m === "object") localStorage.setItem("tz-sync-device-meta", JSON.stringify(d.m));
+    }
+    return true;
+  } catch { return false; }
+}
+
 // Returns null (no hash), "invalid" (broken link), { sync: key } (device-sync link) or the people list.
 export function takeHash() {
   const hash = window.location.hash.slice(1);

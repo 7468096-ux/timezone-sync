@@ -1,11 +1,14 @@
-# On every push to main: test, deploy the device-sync service to Cloudflare (when its secrets
-# are set), build the site pointing at that service, and publish the build to the gh-pages branch.
+# On every push to main: test, then publish.
+#
+# With the CLOUDFLARE_API_TOKEN secret, the site and the device-sync API are deployed together as one
+# Cloudflare Worker (worker/). Once SITE_DOMAIN's zone is active in that Cloudflare account, the Worker
+# is served at https://SITE_DOMAIN and the old GitHub Pages address becomes a redirect that carries
+# each visitor's saved data over (deploy/moved.html). Until then the site keeps being published on
+# GitHub Pages and only the sync API runs on Cloudflare (workers.dev).
+# CLOUDFLARE_ACCOUNT_ID (secret or variable) is optional: without it wrangler uses the token's account.
 #
 # GitHub Pages serves the gh-pages branch (repo Settings → Pages → "Deploy from a branch": gh-pages).
-# Sync needs the repository secret CLOUDFLARE_API_TOKEN. CLOUDFLARE_ACCOUNT_ID (secret or variable)
-# is optional: without it wrangler picks the token's account. Without the token the site is still
-# published, just without the "Sync devices" button.
-name: Deploy to GitHub Pages
+name: Deploy
 
 on:
   push:
@@ -19,12 +22,14 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  SITE_DOMAIN: timezone-sync.com.co   # keep in sync with worker/wrangler.toml (CANONICAL_HOST, ALLOWED_ORIGINS)
+  GH_PAGES_ORIGIN: https://7468096-ux.github.io
+  WRANGLER: npx --yes wrangler@4.149.0
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,16 +39,17 @@ jobs:
       - run: npm ci
       - run: npm test
 
-      - name: Deploy sync service to Cloudflare
-        id: sync
-        if: env.CLOUDFLARE_API_TOKEN != ''
-        working-directory: worker
+      - name: Cloudflare credentials and domain status
+        id: cf
+        env:
+          RAW_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RAW_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          # Tolerate a pasted secret with stray whitespace, or token and account id pasted together
-          # into CLOUDFLARE_API_TOKEN: a 32-hex line is the account id, the other line is the token.
-          token=""; acct="${CLOUDFLARE_ACCOUNT_ID:-}"
-          acct="$(printf '%s' "$acct" | tr -d '[:space:]')"
+          if [ -z "$RAW_TOKEN" ]; then echo "enabled=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # Tolerate stray whitespace, or token and account id pasted together into the token secret:
+          # a 32-hex line is the account id, the other line is the token.
+          token=""; acct="$(printf '%s' "$RAW_ACCOUNT" | tr -d '[:space:]')"
           while IFS= read -r line; do
             line="$(printf '%s' "$line" | tr -d '[:space:]')"
             [ -z "$line" ] && continue
@@ -51,63 +57,114 @@ jobs:
             elif [ -z "$token" ]; then token="$line"
             else echo "::error::CLOUDFLARE_API_TOKEN holds more than one token-like line"; exit 1
             fi
-          done <<< "$CLOUDFLARE_API_TOKEN"
+          done <<< "$RAW_TOKEN"
           [ -n "$token" ] || { echo "::error::CLOUDFLARE_API_TOKEN has no token in it"; exit 1; }
-          echo "::add-mask::$token"
-          export CLOUDFLARE_API_TOKEN="$token"
-          # without an account id wrangler picks the token's account
-          if [ -n "$acct" ]; then echo "::add-mask::$acct"; export CLOUDFLARE_ACCOUNT_ID="$acct"; else unset CLOUDFLARE_ACCOUNT_ID; fi
-          WR="npx --yes wrangler@4.149.0"
-          db_id() { $WR d1 list --json | jq -r '.[] | select(.name == "tz-sync") | .uuid'; }
+          echo "::add-mask::$token"; echo "CF_API_TOKEN=$token" >> "$GITHUB_ENV"
+          if [ -n "$acct" ]; then echo "::add-mask::$acct"; echo "CF_ACCOUNT_ID=$acct" >> "$GITHUB_ENV"; fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+          zones="$(curl -s -H "Authorization: Bearer $token" "https://api.cloudflare.com/client/v4/zones?name=$SITE_DOMAIN")"
+          status="$(jq -r '.result[0].status // "missing"' <<< "$zones")"
+          echo "zone=$status" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Domain $SITE_DOMAIN"
+            case "$status" in
+              active)  echo "Active in Cloudflare — the site is served there." ;;
+              missing) echo "Not added to this Cloudflare account yet (Add a domain → $SITE_DOMAIN). The site stays on GitHub Pages." ;;
+              *)       echo "Zone status: **$status**. Set these nameservers at the registrar:"
+                       jq -r '.result[0].name_servers[]? | "- `" + . + "`"' <<< "$zones" ;;
+            esac
+            echo "Current nameservers: $(dig +short NS "$SITE_DOMAIN" | tr '\n' ' ')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build the site for Cloudflare
+        if: steps.cf.outputs.enabled == 'true'
+        run: npx vite build --base=/ --outDir dist-cf
+        env:
+          VITE_SYNC_URL: /   # sync API on the same domain
+
+      - name: Deploy to Cloudflare (site + sync API)
+        id: worker
+        if: steps.cf.outputs.enabled == 'true'
+        working-directory: worker
+        env:
+          ZONE: ${{ steps.cf.outputs.zone }}
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="$CF_API_TOKEN"
+          if [ -n "${CF_ACCOUNT_ID:-}" ]; then export CLOUDFLARE_ACCOUNT_ID="$CF_ACCOUNT_ID"; fi
+          db_id() { $WRANGLER d1 list --json | jq -r '.[] | select(.name == "tz-sync") | .uuid'; }
           ID="$(db_id)"
           if [ -z "$ID" ]; then
             # create outside this folder so wrangler doesn't try to edit wrangler.toml
-            (cd "$RUNNER_TEMP" && $WR d1 create tz-sync)
+            (cd "$RUNNER_TEMP" && $WRANGLER d1 create tz-sync)
             ID="$(db_id)"
           fi
           sed -i "s/__D1_ID__/$ID/" wrangler.toml
-          $WR d1 execute tz-sync --remote --file schema.sql --yes
-          $WR deploy | tee "$RUNNER_TEMP/deploy.log"
-          URL="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -1)"
-          test -n "$URL" || { echo "No workers.dev URL in deploy output"; exit 1; }
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "Sync service: $URL" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$ZONE" = active ]; then
+            sed -i "s|^# __ROUTES__|routes = [\n  { pattern = \"$SITE_DOMAIN\", custom_domain = true },\n  { pattern = \"www.$SITE_DOMAIN\", custom_domain = true },\n]|" wrangler.toml
+          fi
+          $WRANGLER d1 execute tz-sync --remote --file schema.sql --yes
+          $WRANGLER deploy | tee "$RUNNER_TEMP/deploy.log"
+          WORKERS_URL="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -1)"
+          test -n "$WORKERS_URL" || { echo "::error::No workers.dev URL in deploy output"; exit 1; }
+          echo "workers_url=$WORKERS_URL" >> "$GITHUB_OUTPUT"
+          if [ "$ZONE" = active ]; then
+            echo "site_url=https://$SITE_DOMAIN" >> "$GITHUB_OUTPUT"; echo "custom=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "site_url=$WORKERS_URL" >> "$GITHUB_OUTPUT"; echo "custom=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Check the live sync service
-        if: steps.sync.outputs.url != ''
+      - name: Check the live site and sync API
+        if: steps.worker.outcome == 'success'
         env:
-          URL: ${{ steps.sync.outputs.url }}
-          ORIGIN: https://7468096-ux.github.io
+          URL: ${{ steps.worker.outputs.site_url }}
+          ORIGIN: ${{ steps.worker.outputs.custom == 'true' && steps.worker.outputs.site_url || env.GH_PAGES_ORIGIN }}
         run: |
           set -euo pipefail
-          # fresh deployments on workers.dev can take a few seconds to answer
-          id="$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)"
-          for i in 1 2 3 4 5 6; do
-            code="$(curl -s -o /tmp/get.json -w '%{http_code}' "$URL/v1/s/$id" || true)"
-            [ "$code" = 404 ] && break; sleep 5
+          # a new custom domain needs a few minutes for its certificate
+          for i in $(seq 1 36); do
+            curl -sf "$URL/" -o /tmp/index.html && grep -q 'id="root"' /tmp/index.html && break
+            echo "waiting for $URL ($i)…"; sleep 10
           done
+          grep -q 'id="root"' /tmp/index.html || { echo "::error::$URL/ does not serve the site"; exit 1; }
+          id="$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)"
+          code="$(curl -s -o /tmp/get.json -w '%{http_code}' "$URL/v1/s/$id")"
           [ "$code" = 404 ] && grep -q not_found /tmp/get.json || { echo "::error::GET unknown id: HTTP $code"; exit 1; }
-          now="$(date +%s)000"
           code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Origin: $ORIGIN" -H 'Content-Type: application/json' \
-            -d "{\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"c21va2U=\",\"updatedAt\":$now}" "$URL/v1/s/$id")"
+            -d "{\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"c21va2U=\",\"updatedAt\":$(date +%s)000}" "$URL/v1/s/$id")"
           [ "$code" = 200 ] || { echo "::error::PUT: HTTP $code"; exit 1; }
           curl -s "$URL/v1/s/$id" | grep -q '"data":"c21va2U="' || { echo "::error::GET after PUT returned other data"; exit 1; }
           code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Type: application/json' \
-            -d "{\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"b2xk\",\"updatedAt\":1}" "$URL/v1/s/$id")"
+            -d '{"iv":"AAAAAAAAAAAAAAAA","data":"b2xk","updatedAt":1}' "$URL/v1/s/$id")"
           [ "$code" = 409 ] || { echo "::error::older write was not rejected: HTTP $code"; exit 1; }
           curl -s -D - -o /dev/null -X OPTIONS -H "Origin: $ORIGIN" "$URL/v1/s/$id" | grep -qi "access-control-allow-origin: $ORIGIN" \
             || { echo "::error::CORS header missing for $ORIGIN"; exit 1; }
-          echo "Sync service check passed (read, write, stale-write rejection, CORS)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Live check passed at $URL (site, read, write, stale-write rejection, CORS for $ORIGIN)" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - run: npm run build
+      - name: Prepare GitHub Pages content
         env:
-          VITE_SYNC_URL: ${{ steps.sync.outputs.url }}
+          CUSTOM: ${{ steps.worker.outputs.custom }}
+          SYNC_API: ${{ steps.worker.outputs.workers_url }}
+        run: |
+          set -euo pipefail
+          rm -rf gh && mkdir gh
+          if [ "$CUSTOM" = true ]; then
+            # the app lives on the custom domain now: every old page forwards there with the visitor's data
+            sed "s/__DOMAIN__/$SITE_DOMAIN/g" deploy/moved.html > gh/index.html
+            cp gh/index.html gh/v1.html; cp gh/index.html gh/404.html
+            echo "GitHub Pages: redirect to https://$SITE_DOMAIN" >> "$GITHUB_STEP_SUMMARY"
+          else
+            VITE_SYNC_URL="$SYNC_API" npx vite build
+            cp -r dist/. gh/
+            echo "GitHub Pages: full site${SYNC_API:+ (sync via $SYNC_API)}" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-      - name: Publish dist/ to gh-pages
+      - name: Publish to gh-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd dist
+          cd gh
           touch .nojekyll
           git init -q -b gh-pages
           git add -A

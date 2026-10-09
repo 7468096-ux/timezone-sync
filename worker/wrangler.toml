@@ -1,12 +1,21 @@
-# Sync service for Timezone Sync: stores one encrypted blob per sync key.
-# Deployed by .github/workflows/deploy.yml; __D1_ID__ is filled in there.
+# Timezone Sync on Cloudflare: serves the site (static assets) and the device-sync API (/v1/*).
+# Deployed by .github/workflows/deploy.yml, which fills in __D1_ID__ and, once the domain's zone is
+# active in this Cloudflare account, the custom-domain routes at __ROUTES__.
 name = "tz-sync"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
 workers_dev = true
+# __ROUTES__
 
 [vars]
-ALLOWED_ORIGINS = "https://7468096-ux.github.io,http://localhost:5173,http://localhost:4173"
+ALLOWED_ORIGINS = "https://timezone-sync.com.co,https://7468096-ux.github.io,http://localhost:5173,http://localhost:4173"
+CANONICAL_HOST = "timezone-sync.com.co"
+
+# the built site (vite build --base=/ --outDir dist-cf); the Worker runs first so it can route /v1/*
+[assets]
+directory = "../dist-cf"
+binding = "ASSETS"
+run_worker_first = true
 
 [[d1_databases]]
 binding = "DB"
