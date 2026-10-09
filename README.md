@@ -7,9 +7,11 @@ Find the perfect meeting window across timezones.
 ## Features
 
 - **Visual timeline** — see everyone's day at a glance (work, sleep, free)
-- **Golden window** — automatically finds when everyone overlaps
-- **Drag to adjust** — drag the edges of work-hour bars to change schedules in real time
-- **Share via link** — one click generates a URL with your setup encoded. Send to anyone
+- **Golden window** — finds when everyone overlaps (incl. across midnight and half-hour zones like India), shows all windows and "starts in …"
+- **Per-hour availability** — click a cell to toggle an hour (gaps allowed); drag with the mouse to paint several
+- **Edit / remove** — click a name to edit name, city, timezone; removal can be undone
+- **Any timezone** — popular zones sorted by UTC offset, plus every IANA zone the browser knows
+- **Share via link** — one click copies a URL with your setup encoded. Opening a link keeps a backup of your own setup ("Вернуть мою")
 - **Auto-save** — your configuration persists in localStorage between visits
 - **Zero backend** — pure static site, no server, no database, no auth needed
 
@@ -20,9 +22,19 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173
+Open http://localhost:5173/timezone-sync/
 
-## Deploy to Vercel (2 minutes)
+Tests (pure logic, no extra deps):
+
+```bash
+npm test
+```
+
+## Deploy
+
+`vite.config.js` sets `base: '/timezone-sync/'` for GitHub Pages. For Vercel/Netlify (served from the root) change it to `'/'`.
+
+### Deploy to Vercel
 
 ### Option A: CLI
 ```bash
@@ -46,17 +58,15 @@ npm run build
 
 ## How sharing works
 
-Click **🔗 Поделиться ссылкой** — it encodes your current people/timezones/work hours into the URL hash (base64). When someone opens that link, they see your exact configuration. No server involved.
+Click **🔗 Поделиться ссылкой** — it encodes your current people/timezones/work hours into the URL hash. When someone opens that link, they see your exact configuration; the hash is then removed from the address bar so a reload doesn't undo their edits. No server involved.
 
-Example: `https://timesync.vercel.app/#eyJuIjoi0KLRiyIsImMi...`
+Format (`v2`): `#v2.name~city~tz~hours,…` — text is percent-encoded (commas/tildes in names are safe), `tz` is an index into the timezone table or an IANA name, `hours` is a 24-bit hex mask. Older link formats still open.
 
 ## Customize
 
-Edit `src/App.jsx`:
-- `DEFAULTS` array — change the default people shown on first visit
-- `COMMON_TZ` array — add/remove timezone options in the dropdown  
-- `FLAG_MAP` — map timezone IDs to emoji flags
-- Colors and styling — all inline, easy to tweak
+- `src/lib/config.js` — `DEFAULTS` (people on first visit), `TZ_TABLE` (popular zones; **only append** — share links store the index), `FLAG_MAP`, link format
+- `src/lib/time.js` — offsets, formatting, common-window search
+- `src/App.jsx` — UI; colors and styling are inline
 
 ## Tech stack
 
