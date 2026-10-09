@@ -73,6 +73,32 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Sync service: $URL" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check the live sync service
+        if: steps.sync.outputs.url != ''
+        env:
+          URL: ${{ steps.sync.outputs.url }}
+          ORIGIN: https://7468096-ux.github.io
+        run: |
+          set -euo pipefail
+          # fresh deployments on workers.dev can take a few seconds to answer
+          id="$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)"
+          for i in 1 2 3 4 5 6; do
+            code="$(curl -s -o /tmp/get.json -w '%{http_code}' "$URL/v1/s/$id" || true)"
+            [ "$code" = 404 ] && break; sleep 5
+          done
+          [ "$code" = 404 ] && grep -q not_found /tmp/get.json || { echo "::error::GET unknown id: HTTP $code"; exit 1; }
+          now="$(date +%s)000"
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Origin: $ORIGIN" -H 'Content-Type: application/json' \
+            -d "{\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"c21va2U=\",\"updatedAt\":$now}" "$URL/v1/s/$id")"
+          [ "$code" = 200 ] || { echo "::error::PUT: HTTP $code"; exit 1; }
+          curl -s "$URL/v1/s/$id" | grep -q '"data":"c21va2U="' || { echo "::error::GET after PUT returned other data"; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Type: application/json' \
+            -d "{\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"b2xk\",\"updatedAt\":1}" "$URL/v1/s/$id")"
+          [ "$code" = 409 ] || { echo "::error::older write was not rejected: HTTP $code"; exit 1; }
+          curl -s -D - -o /dev/null -X OPTIONS -H "Origin: $ORIGIN" "$URL/v1/s/$id" | grep -qi "access-control-allow-origin: $ORIGIN" \
+            || { echo "::error::CORS header missing for $ORIGIN"; exit 1; }
+          echo "Sync service check passed (read, write, stale-write rejection, CORS)" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - run: npm run build
         env:
           VITE_SYNC_URL: ${{ steps.sync.outputs.url }}
