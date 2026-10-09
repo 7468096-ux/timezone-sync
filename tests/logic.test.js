@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   getOffset, getTimeInTZ, fmtTime, fmtOffset, circularRanges, findCommonWindow,
-  hoursRange, dayShift, decodeHours, encodeHours,
+  hoursRange, dayShift, decodeHours, encodeHours, findBestPartial, freeForSlot,
 } from "../src/lib/time.js";
 import { encodeConfig, decodeConfig, sanitizePeople, DEFAULTS } from "../src/lib/config.js";
 
@@ -114,4 +114,34 @@ test("fractional offset: window must fit fully into everyone's hours", () => {
   const mumbai = { offset: 5.5, workHours: hoursRange(0, 24) };
   const w = findCommonWindow([berlin, mumbai], 5.5);
   assert.deepEqual(w.best, { start: 13, end: 21 }); // Berlin 09:30–17:30
+});
+
+test("best partial window names who can't make it", () => {
+  const people = [
+    { offset: 0, workHours: hoursRange(9, 12) },
+    { offset: 0, workHours: hoursRange(10, 14) },
+    { offset: 0, workHours: hoursRange(20, 22) },
+  ];
+  const r = findBestPartial(people, 0);
+  assert.equal(r.count, 2);
+  assert.deepEqual(r.best, { start: 10, end: 12 });
+  assert.deepEqual(r.missing, [2]);
+});
+
+test("freeForSlot checks every hour and wraps midnight", () => {
+  const s = new Set([22, 23, 0]);
+  assert.equal(freeForSlot(s, 22, 3, 0), true);
+  assert.equal(freeForSlot(s, 22, 4, 0), false);
+});
+
+test("best partial range keeps the same people free throughout", () => {
+  // A 9–13, B 13–17, C 9–17: 2 of 3 free from 9 to 17, but A+C then B+C
+  const people = [
+    { offset: 0, workHours: hoursRange(9, 13) },
+    { offset: 0, workHours: hoursRange(13, 17) },
+    { offset: 0, workHours: hoursRange(9, 17) },
+  ];
+  const r = findBestPartial(people, 0);
+  assert.deepEqual(r.best, { start: 9, end: 13 });
+  assert.deepEqual(r.missing, [1]);
 });

@@ -147,3 +147,37 @@ export function findCommonWindow(people, refOffset) {
   const best = ranges.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
   return { ranges, best, allHours };
 }
+
+// When nobody-left-out is impossible: hours where the most people are free.
+// Returns null or { count, total, best: {start,end}, missing: [index…] at best.start }
+export function findBestPartial(people, refOffset) {
+  if (people.length === 0) return null;
+  const sets = people.map(p => new Set(p.workHours));
+  const freeAt = Array.from({ length: 24 }, (_, h) =>
+    people.map((p, i) => coversRefHour(sets[i], h, p.offset - refOffset)));
+  const counts = freeAt.map(f => f.filter(Boolean).length);
+  const count = Math.max(...counts);
+  if (count === 0) return null;
+  // Split into runs where the *same* people are free, so the suggested range
+  // really has `count` people free for its whole length.
+  const sig = (h) => (counts[h] === count ? freeAt[h].map(Number).join("") : null);
+  const runs = [];
+  for (let h = 0; h < 24; h++) {
+    if (sig(h) === null) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.end === h && sig(last.start) === sig(h)) last.end = h + 1;
+    else runs.push({ start: h, end: h + 1 });
+  }
+  if (runs.length > 1 && runs[0].start === 0 && runs[runs.length - 1].end === 24 && sig(0) === sig(23)) {
+    runs[runs.length - 1].end = 24 + runs.shift().end;
+  }
+  const best = runs.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
+  const missing = freeAt[best.start].flatMap((f, i) => (f ? [] : [i]));
+  return { count, total: people.length, best, missing };
+}
+
+// Is the person free for every hour of the reference slot [start, start+len)?
+export function freeForSlot(hourSet, start, len, diff) {
+  for (let k = 0; k < len; k++) if (!coversRefHour(hourSet, mod24(start + k), diff)) return false;
+  return true;
+}

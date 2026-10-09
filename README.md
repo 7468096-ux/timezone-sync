@@ -15,6 +15,17 @@ Find the perfect meeting window across timezones.
 - **Auto-save** — your configuration persists in localStorage between visits
 - **Zero backend** — pure static site, no server, no database, no auth needed
 
+## Two interfaces
+
+- `index.html` — v1, the original single-screen timeline (`src/App.jsx`)
+- `v2.html` — redesigned interface (`src/v2/`): the answer first (best slot with everyone's local time and a
+  "copy for chat" invite), a larger scrollable day grid with local hours inside the cells, a "pick time / edit hours"
+  switch, a participant panel with hour presets, light and dark themes, and a "best partial" slot when no common window exists
+
+Both share the logic in `src/lib` and the same saved data. After deploy: `/timezone-sync/` and `/timezone-sync/v2.html`.
+
+`npm run build:artifact` (v1) and `npm run build:artifact -- v2` build single-file pages for the Claude artifact viewer.
+
 ## Quick start (local)
 
 ```bash

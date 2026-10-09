@@ -1,61 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
-  isValidTZ, getTimeInTZ, getOffset, fmtH, fmtTime, fmtOffset, localHourAt, dayShift, fmtDayShift,
+  getTimeInTZ, getOffset, fmtH, fmtTime, fmtOffset, localHourAt, dayShift, fmtDayShift,
   describeHours, findCommonWindow, hoursRange, mod24,
 } from "./lib/time.js";
+import { MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig } from "./lib/config.js";
 import {
-  DEFAULTS, MAX_PEOPLE, normalizeTZ, flagFor, cityFor, allTimeZones, sortedCommonTZ,
-  sanitizePeople, encodeConfig, decodeConfig,
-} from "./lib/config.js";
+  EMBED, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId,
+} from "./lib/storage.js";
 
-/* ── persistence ── */
-const LS_PEOPLE = "tz-sync-people";
-const LS_REF = "tz-sync-ref";
-const LS_BACKUP = "tz-sync-people-backup";
-
-function readSaved() {
-  try { return sanitizePeople(JSON.parse(localStorage.getItem(LS_PEOPLE))); } catch { return null; }
-}
-
-// Reads the config from the URL hash and removes the hash, so that a reload
-// doesn't throw away edits made after opening a shared link.
-// Returns null (no hash), "invalid" (broken link) or the people list.
-function takeHash() {
-  const hash = window.location.hash.slice(1);
-  if (!hash) return null;
-  const people = decodeConfig(hash);
-  try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
-  return people || "invalid";
-}
-
-const sameConfig = (a, b) => encodeConfig(a) === encodeConfig(b);
-
-function rememberBackup(people) {
-  try { localStorage.setItem(LS_BACKUP, JSON.stringify(people)); } catch {}
-}
-
-// Module scope: runs once, outside StrictMode's double-invoked initializers
-const INITIAL = (() => {
-  const saved = readSaved();
-  const fromLink = takeHash();
-  if (fromLink === "invalid") return { people: saved || DEFAULTS, notice: { kind: "badlink" } };
-  if (fromLink) {
-    const backup = saved && !sameConfig(saved, fromLink) ? saved : null;
-    if (backup) rememberBackup(backup);
-    return { people: fromLink, notice: { kind: "link", backup } };
-  }
-  return { people: saved || DEFAULTS, notice: null };
-})();
-
-const detectTZ = () => {
-  try { return normalizeTZ(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch { return "UTC"; }
-};
-
-// Build for the Claude artifact viewer: its page URL isn't shareable, so "share"
-// copies a config code and an "import code" field replaces opening links.
-const EMBED = import.meta.env.MODE === "artifact";
-
-const nextId = (people) => Math.max(0, ...people.map(p => p.id)) + 1;
+const INITIAL = loadInitial();
 
 const mono = "'JetBrains Mono', monospace";
 const sans = "'DM Sans', -apple-system, sans-serif";
@@ -160,7 +113,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    try { localStorage.setItem(LS_PEOPLE, JSON.stringify(people)); } catch {}
+    savePeople(people);
   }, [people]);
 
   const applyLink = (fromLink) => {
@@ -193,18 +146,11 @@ export default function App() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  const [refTZ, setRefTZ] = useState(() => {
-    try {
-      const saved = normalizeTZ(localStorage.getItem(LS_REF) || "");
-      if (isValidTZ(saved)) return saved;
-    } catch {}
-    const d = detectTZ();
-    return isValidTZ(d) ? d : "UTC";
-  });
+  const [refTZ, setRefTZ] = useState(loadRefTZ);
   // Saved only on an explicit choice, so auto-detection keeps working after travel
   const chooseRefTZ = (tz) => {
     setRefTZ(tz);
-    try { localStorage.setItem(LS_REF, tz); } catch {}
+    saveRefTZ(tz);
   };
 
   const refCity = cityFor(refTZ);
@@ -283,7 +229,7 @@ export default function App() {
   const importCode = () => {
     const raw = importText.trim();
     if (!raw) return;
-    applyLink(decodeConfig(raw.includes("#") ? raw.slice(raw.indexOf("#") + 1) : raw) || "invalid");
+    applyLink(parseCode(raw));
     setImportText(null);
   };
 
