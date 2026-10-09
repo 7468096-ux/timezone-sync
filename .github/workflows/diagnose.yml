@@ -1,0 +1,49 @@
+# Manual check of how the public internet sees the site: DNS at several resolvers, delegation, HTTPS.
+# Run from the Actions tab → "Diagnose domain" → Run workflow.
+name: Diagnose domain
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SITE_DOMAIN: timezone-sync.com.co
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: DNS and HTTPS from several resolvers
+        run: |
+          d="$SITE_DOMAIN"
+          {
+            echo "### Delegation"
+            echo '```'
+            dig +short NS "$d" @8.8.8.8 || true
+            echo "-- parent (.com.co) servers say:"
+            parent="$(dig +short NS com.co @8.8.8.8 | head -1)"
+            dig +norecurse NS "$d" "@$parent" | sed -n '/AUTHORITY SECTION/,/^$/p' || true
+            echo '```'
+            echo "### A / AAAA at public resolvers"
+            echo '| resolver | A | AAAA | status |'
+            echo '|---|---|---|---|'
+            for r in 8.8.8.8 1.1.1.1 9.9.9.9 208.67.222.222 77.88.8.8 94.140.14.14; do
+              a="$(dig +short A "$d" @"$r" | tr '\n' ' ')"
+              aaaa="$(dig +short AAAA "$d" @"$r" | tr '\n' ' ')"
+              st="$(dig A "$d" @"$r" | grep -oE 'status: [A-Z]+' | head -1)"
+              echo "| $r | ${a:-–} | ${aaaa:-–} | ${st#status: } |"
+            done
+            echo "### www"
+            echo "\`$(dig +short www."$d" @1.1.1.1 | tr '\n' ' ')\`"
+            echo "### SOA (negative-cache TTL is the last number)"
+            echo "\`$(dig +short SOA "$d" @1.1.1.1)\`"
+            echo "### HTTPS"
+            echo '```'
+            curl -sS -o /dev/null -w "https://$d → %{http_code} in %{time_total}s, ip %{remote_ip}, ssl verify %{ssl_verify_result}\n" "https://$d/" 2>&1 || true
+            curl -sS -o /dev/null -w "http://$d → %{http_code} → %{redirect_url}\n" "http://$d/" 2>&1 || true
+            curl -sS -o /dev/null -w "https://www.$d → %{http_code} → %{redirect_url}\n" "https://www.$d/" 2>&1 || true
+            echo | openssl s_client -connect "$d:443" -servername "$d" 2>/dev/null | openssl x509 -noout -subject -issuer -dates 2>/dev/null || echo "no certificate"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
