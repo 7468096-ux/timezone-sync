@@ -1,11 +1,11 @@
 // Builds a single self-contained HTML page (JS and CSS inlined) for the Claude artifact viewer.
-// Usage: npm run build:artifact        → dist-artifact/timezone-sync.html     (v1, index.html)
-//        npm run build:artifact -- v2  → dist-artifact/timezone-sync-v2.html  (v2, v2.html)
+// Usage: npm run build:artifact        → dist-artifact/timezone-sync.html     (v1, v1.html)
+//        npm run build:artifact -- v2  → dist-artifact/timezone-sync-v2.html  (v2, index.html)
 import { build } from "vite";
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 
 const version = process.argv[2] === "v2" ? "v2" : "v1";
-const entry = version === "v2" ? "v2.html" : "index.html";
+const entry = version === "v2" ? "index.html" : "v1.html";
 const outFile = `dist-artifact/timezone-sync${version === "v2" ? "-v2" : ""}.html`;
 const outDir = `dist-artifact/build-${version}`;
 
@@ -30,7 +30,7 @@ const baseCss = version === "v2"
   : ":root { color-scheme: dark; --bg: #08080a; }\n  * { margin: 0; padding: 0; box-sizing: border-box; }\n  html, body { background: var(--bg); }";
 
 const html = `<title>${version === "v2" ? "Timezone Sync v2" : "Timezone Sync"}</title>
-<meta name="description" content="Найди общее время для созвона в разных часовых поясах" />
+<meta name="description" content="${version === "v2" ? "Find a meeting time that works across time zones" : "Найди общее время для созвона в разных часовых поясах"}" />
 ${fontLinks}
 <style>
   ${baseCss}

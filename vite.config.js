@@ -6,8 +6,8 @@ export default defineConfig({
   base: '/timezone-sync/',
   build: {
     rollupOptions: {
-      // index.html — v1 interface, v2.html — redesigned interface; both share src/lib
-      input: { main: 'index.html', v2: 'v2.html' },
+      // index.html — current interface (src/v2, 10 languages); v1.html — the original one. Both share src/lib
+      input: { main: 'index.html', v1: 'v1.html' },
     },
   },
 })

@@ -65,7 +65,7 @@ button { cursor: pointer; }
 /* header */
 .top { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
 .brand-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--faint); }
-.brand h1 { font-size: 30px; font-weight: 300; letter-spacing: -0.01em; margin-top: 4px; }
+.brand h1 { font-size: 30px; font-weight: 300; letter-spacing: -0.01em; }
 .clock { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .clock-time { font-family: var(--mono); font-size: 34px; font-weight: 700; color: var(--accent-ink); line-height: 1; letter-spacing: -0.03em; }
 .clock-meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; flex-wrap: wrap; justify-content: flex-end; }
@@ -132,7 +132,7 @@ button { cursor: pointer; }
 }
 .who-row:nth-child(odd) { background: var(--surface-2); }
 .who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.who-name small { color: var(--faint); margin-left: 6px; font-size: 12px; }
+.who-name small { color: var(--faint); margin-inline-start: 6px; font-size: 12px; }
 .who-time { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
 .who-time em { font-style: normal; color: var(--accent-ink); margin-left: 4px; }
 .mark { text-align: center; font-weight: 700; }
@@ -257,3 +257,77 @@ button { cursor: pointer; }
   .hours { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ── top bar + language switcher ── */
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: -6px; }
+.lang { position: relative; }
+.lang-btn {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 9px;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface);
+  font-size: 13px; color: var(--muted);
+}
+.lang-btn:hover, .lang-btn[aria-expanded="true"] { color: var(--fg); border-color: var(--accent-line); }
+.lang-btn .caret { opacity: .7; }
+.lang-menu {
+  position: absolute; inset-inline-end: 0; top: calc(100% + 6px); z-index: 40;
+  width: 250px; max-width: calc(100vw - 32px); padding: 6px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column;
+}
+.lang-item {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; align-items: baseline; gap: 10px;
+  padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; text-align: start;
+}
+.lang-item:hover, .lang-item:focus-visible { background: var(--surface-2); outline: none; }
+.lang-item[aria-checked="true"] { background: var(--accent-soft); }
+.lang-native { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lang-en { font-size: 11px; color: var(--faint); white-space: nowrap; }
+.lang-check { color: var(--accent-ink); font-weight: 700; }
+/* each native name is shown in its own script's face */
+.lang-native:lang(zh) { font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+.lang-native:lang(hi) { font-family: "Hind", "Noto Sans Devanagari", sans-serif; }
+.lang-native:lang(ar) { font-family: "IBM Plex Sans Arabic", "Noto Sans Arabic", sans-serif; }
+.lang-native:lang(bn) { font-family: "Hind Siliguri", "Noto Sans Bengali", sans-serif; }
+.lang-native:lang(ru) { font-family: "Golos Text", var(--sans); }
+
+/* ── per-script typography ──
+   Latin (en, es, fr, pt, id): DM Sans, the original look.
+   Each other script gets a face drawn for it, plus spacing that suits it. */
+html:lang(ru) { --sans: "Golos Text", "DM Sans", -apple-system, "Segoe UI", sans-serif; }
+
+html:lang(zh) {
+  --sans: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+html:lang(zh) body { line-height: 1.6; }
+html:lang(zh) .brand h1 { font-weight: 500; letter-spacing: 0.04em; }
+
+html:lang(hi) { --sans: "Hind", "Noto Sans Devanagari", "Nirmala UI", sans-serif; }
+html:lang(bn) { --sans: "Hind Siliguri", "Noto Sans Bengali", "Nirmala UI", sans-serif; }
+/* Indic scripts: taller line boxes for matras and conjuncts, a touch larger */
+html:lang(hi) body, html:lang(bn) body { font-size: 16px; line-height: 1.65; }
+html:lang(hi) .brand h1, html:lang(bn) .brand h1 { font-weight: 500; line-height: 1.35; }
+
+html:lang(ar) { --sans: "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif; }
+html:lang(ar) body { font-size: 16px; line-height: 1.75; }
+html:lang(ar) .brand h1 { font-weight: 500; letter-spacing: 0; }
+
+/* Scripts without letter case: no uppercase eyebrows, no tracking (it breaks Arabic joining),
+   and use the text face instead of the Latin monospace */
+html:lang(zh) .slot-eyebrow, html:lang(hi) .slot-eyebrow, html:lang(bn) .slot-eyebrow, html:lang(ar) .slot-eyebrow {
+  font-family: var(--sans); text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 600;
+}
+html:lang(ru) .slot-eyebrow { letter-spacing: .12em; }
+html:lang(ar) * { letter-spacing: 0 !important; }
+
+/* Long translations (fr, es, pt, ru, id): let the headline wrap nicely */
+.brand h1 { text-wrap: balance; }
+
+/* ── right-to-left ──
+   The page mirrors; times, ranges and the hour grid stay left-to-right like a clock face. */
+.num, .slot-time, .who-time, .clock-time, .chip, .grid-scroll, .field.mono {
+  direction: ltr; unicode-bidi: isolate;
+}
+[dir="rtl"] .slot-time, [dir="rtl"] .clock-time { text-align: right; }
+[dir="rtl"] .who-row { direction: rtl; }
+[dir="rtl"] .grid-scroll .name { text-align: right; direction: rtl; }
+[dir="rtl"] .toast { direction: rtl; }

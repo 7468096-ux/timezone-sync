@@ -1,28 +1,83 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
 import {
   getTimeInTZ, getOffset, fmtTime, fmtOffset, localHourAt, describeHours, findCommonWindow,
   findBestPartial, freeForSlot, coversRefHour, hoursRange, mod24,
 } from "../lib/time.js";
-import { MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig } from "../lib/config.js";
+import { MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig, sanitizePeople } from "../lib/config.js";
 import {
-  EMBED, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId,
+  EMBED, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId, detectTZ,
 } from "../lib/storage.js";
+import {
+  LANGS, langInfo, detectLang, saveLang, makeT, splitTemplate, fmtUnit, fmtDuration, fmtWeekday, fmtLongDate,
+  ensureFont, makeDefaults,
+} from "./i18n.js";
 import "./styles.css";
 
-const INITIAL = loadInitial();
+const START_LANG = detectLang();
+const exampleTeam = (lang) => sanitizePeople(makeDefaults(lang, detectTZ()));
+const INITIAL = loadInitial(() => exampleTeam(START_LANG));
 const MAX_LEN = 12;
+
+const I18n = createContext({ lang: "en", t: makeT("en") });
+const useI18n = () => useContext(I18n);
 
 const pad = (n) => String(n).padStart(2, "0");
 const fmtHour = (h) => `${pad(mod24(h))}:00`;
-const fmtLen = (n) => `${n} ч`;
-function fmtDuration(min) {
-  const h = Math.floor(min / 60), m = Math.round(min % 60);
-  return h ? `${h} ч${m ? ` ${m} мин` : ""}` : `${m} мин`;
+
+// Apply language to the document: lang/dir attributes (drive per-script CSS), font, title
+function applyDocumentLang(code) {
+  const info = langInfo(code);
+  const root = document.documentElement;
+  root.lang = info.locale;
+  root.dir = info.dir || "ltr";
+  ensureFont(code);
+  document.title = `Timezone Sync — ${makeT(code)("title")}`;
 }
-const weekday = (date, tz) => date.toLocaleDateString("ru-RU", { timeZone: tz, weekday: "short" });
+
+/* ── language switcher: compact button + popover list in speaker order ── */
+function LangSwitcher({ lang, onChange }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    box.current?.querySelector('[aria-checked="true"]')?.focus();
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const cur = langInfo(lang);
+  return (
+    <div className="lang" ref={box}>
+      <button className="lang-btn" aria-haspopup="menu" aria-expanded={open} aria-label={`${t("language")}: ${cur.native}`}
+        onClick={() => setOpen(o => !o)}>
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" />
+        </svg>
+        <span lang={cur.locale}>{cur.native}</span>
+        <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true" className="caret"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
+      </button>
+      {open && (
+        <div className="lang-menu" role="menu" aria-label={t("language")}>
+          {LANGS.map(l => (
+            <button key={l.code} role="menuitemradio" aria-checked={l.code === lang} className="lang-item"
+              onClick={() => { onChange(l.code); setOpen(false); }}>
+              <span className="lang-native" lang={l.locale} dir={l.dir || "ltr"}>{l.native}</span>
+              <span className="lang-en">{l.english}</span>
+              <span className="lang-check" aria-hidden="true">{l.code === lang ? "✓" : ""}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ── timezone select ── */
 function TzSelect({ id, value, onChange, now, className = "select" }) {
+  const { t } = useI18n();
   const common = useMemo(() => sortedCommonTZ(now), [now.getUTCHours()]); // offsets only change on hour boundaries
   const others = useMemo(() => {
     const known = new Set(common.map(c => c.tz));
@@ -32,11 +87,11 @@ function TzSelect({ id, value, onChange, now, className = "select" }) {
   return (
     <select id={id} className={className} value={value} onChange={e => onChange(e.target.value)}>
       {!inList && <option value={value}>{cityFor(value)} ({fmtOffset(getOffset(value, now))})</option>}
-      <optgroup label="Популярные">
+      <optgroup label={t("popular")}>
         {common.map(c => <option key={c.tz} value={c.tz}>{c.label} ({fmtOffset(c.offset)})</option>)}
       </optgroup>
       {others.length > 0 && (
-        <optgroup label="Все зоны">
+        <optgroup label={t("allZones")}>
           {others.map(tz => <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>)}
         </optgroup>
       )}
@@ -49,11 +104,12 @@ const PRESETS = [
   ["9–18", hoursRange(9, 18)],
   ["10–19", hoursRange(10, 19)],
   ["8–17", hoursRange(8, 17)],
-  ["Весь день", hoursRange(0, 24)],
-  ["Очистить", []],
+  ["allDay", hoursRange(0, 24)],
+  ["clear", []],
 ];
 
 function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
+  const { t, lang } = useI18n();
   const [name, setName] = useState(initial.name);
   const [city, setCity] = useState(initial.city === cityFor(initial.tz) ? "" : initial.city);
   const [tz, setTz] = useState(initial.tz);
@@ -96,37 +152,38 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
     <div className="backdrop" onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="ed-title"
         onKeyDown={e => { if (e.key === "Enter" && e.target.tagName === "INPUT") save(); }}>
-        <h2 id="ed-title">{isNew ? "Новый участник" : "Участник"}</h2>
+        <h2 id="ed-title">{isNew ? t("newParticipant") : t("participant")}</h2>
         <div className="form-row">
-          <label className="label">Имя или роль
-            <input id="ed-name" className="field" autoFocus value={name} maxLength={40} placeholder="Например, Аня или «Дизайн»" onChange={e => setName(e.target.value)} />
+          <label className="label">{t("nameLabel")}
+            <input id="ed-name" className="field" autoFocus value={name} maxLength={40} placeholder={t("namePh")} onChange={e => setName(e.target.value)} />
           </label>
-          <label className="label">Город
+          <label className="label">{t("cityLabel")}
             <input id="ed-city" className="field" value={city} maxLength={40} placeholder={cityFor(tz)} onChange={e => setCity(e.target.value)} />
           </label>
-          <label className="label full"><span>Часовой пояс · сейчас там <span className="num">{fmtTime(localNow.decimal)}</span></span>
+          <label className="label full"><span>{splitTemplate(t("tzLabel")).map((p, i) => (typeof p === "string" ? p : <span key={i} className="num">{fmtTime(localNow.decimal)}</span>))}</span>
             <TzSelect id="ed-tz" className="field" value={tz} onChange={setTz} now={now} />
           </label>
         </div>
 
-        <div className="label">Рабочие часы (по местному времени)
+        <div className="label">{t("hoursLabel")}
           <div className="presets">
             {PRESETS.map(([label, list]) => (
-              <button key={label} type="button" className="chip" onClick={() => setHours(new Set(list))}>{label}</button>
+              <button key={label} type="button" className="chip" onClick={() => setHours(new Set(list))}>{/^\d/.test(label) ? <span className="num">{label}</span> : t(label)}</button>
             ))}
           </div>
           <div className="range-set">
-            с
-            <select id="ed-from" className="select" value={from} onChange={e => setFrom(+e.target.value)}>
-              {hoursRange(0, 24).map(h => <option key={h} value={h}>{fmtHour(h)}</option>)}
-            </select>
-            до
-            <select id="ed-to" className="select" value={to} onChange={e => setTo(+e.target.value)}>
-              {hoursRange(0, 24).map(h => <option key={h} value={h}>{fmtHour(h)}</option>)}
-            </select>
-            <button type="button" className="btn small" onClick={applyRange}>Задать</button>
+            {splitTemplate(t("range")).map((p, i) => {
+              if (typeof p === "string") return <span key={i}>{p.trim()}</span>;
+              const [val, set] = p.slot === "from" ? [from, setFrom] : [to, setTo];
+              return (
+                <select key={i} id={`ed-${p.slot}`} className="select" value={val} onChange={e => set(+e.target.value)}>
+                  {hoursRange(0, 24).map(h => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                </select>
+              );
+            })}
+            <button type="button" className="btn small" onClick={applyRange}>{t("set")}</button>
           </div>
-          <div className="hours" aria-label="Часы: нажми, чтобы включить или выключить">
+          <div className="hours" aria-label={t("hoursAria")}>
             {hoursRange(0, 24).map(h => (
               <button key={h} type="button" className={`hour${hours.has(h) ? " on" : ""}`} aria-pressed={hours.has(h)}
                 onPointerDown={e => {
@@ -139,14 +196,14 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
               >{pad(h)}</button>
             ))}
           </div>
-          <div className="hours-sum">{sorted.length ? `${describeHours(sorted)} · ${sorted.length} ч` : "Нет свободных часов"}</div>
+          <div className="hours-sum">{sorted.length ? `${describeHours(sorted)} · ${fmtUnit(lang, sorted.length, "hour")}` : t("noHours")}</div>
         </div>
 
         <div className="sheet-actions">
-          {!isNew && canDelete && <button type="button" className="btn ghost danger" onClick={onDelete}>Удалить</button>}
+          {!isNew && canDelete && <button type="button" className="btn ghost danger" onClick={onDelete}>{t("delete")}</button>}
           <span className="spacer" />
-          <button type="button" className="btn ghost" onClick={onClose}>Отмена</button>
-          <button type="button" className="btn primary" onClick={save}>{isNew ? "Добавить" : "Сохранить"}</button>
+          <button type="button" className="btn ghost" onClick={onClose}>{t("cancel")}</button>
+          <button type="button" className="btn primary" onClick={save}>{isNew ? t("add") : t("save")}</button>
         </div>
       </div>
     </div>
@@ -155,6 +212,9 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
 
 /* ── app ── */
 export default function App() {
+  const [lang, setLang] = useState(START_LANG);
+  const t = useMemo(() => makeT(lang), [lang]);
+  const i18n = useMemo(() => ({ lang, t }), [lang, t]);
   const [now, setNow] = useState(() => new Date());
   const [people, setPeople] = useState(INITIAL.people);
   const [notice, setNotice] = useState(INITIAL.notice);
@@ -206,6 +266,15 @@ export default function App() {
 
   const chooseRefTZ = (tz) => { setRefTZ(tz); saveRefTZ(tz); setSel(null); };
 
+  useEffect(() => { applyDocumentLang(lang); }, [lang]);
+  const chooseLang = (code) => {
+    // an untouched example team follows the language switch
+    const prev = exampleTeam(lang);
+    if (prev && sameConfig(people, prev)) setPeople(exampleTeam(code));
+    setLang(code);
+    saveLang(code);
+  };
+
   /* derived */
   const refCity = cityFor(refTZ);
   const refOffset = getOffset(refTZ, now);
@@ -233,12 +302,12 @@ export default function App() {
     const rows = enriched.map(p => ({
       p, ok: freeForSlot(p.hourSet, slot.start, slot.len, p.diff),
       from: fmtTime(slot.start + p.diff), to: fmtTime(slot.start + slot.len + p.diff),
-      day: weekday(startAt, p.tz),
+      day: fmtWeekday(lang, startAt, p.tz),
     }));
     return { live, startsIn, startAt, rows, okCount: rows.filter(r => r.ok).length };
-  }, [slot?.start, slot?.len, refNow, now, enriched]);
+  }, [slot?.start, slot?.len, refNow, now, enriched, lang]);
 
-  const refDay = slotInfo && weekday(slotInfo.startAt, refTZ);
+  const refDay = slotInfo && fmtWeekday(lang, slotInfo.startAt, refTZ);
   const inSlot = (i) => slot && mod24(i - slot.start) < slot.len;
 
   // keep the picked slot (or "now") in view on narrow screens
@@ -301,8 +370,8 @@ export default function App() {
     "share",
   );
   const inviteText = () => {
-    const head = `Созвон: ${refDay} ${fmtTime(slot.start)}–${fmtTime(slot.start + slot.len)} (${refCity})`;
-    const lines = slotInfo.rows.map(r => `${r.p.emoji} ${r.p.name} — ${r.day} ${r.from}–${r.to}${r.ok ? "" : " (вне рабочих часов)"}`);
+    const head = t("inviteHead", { day: refDay, from: fmtTime(slot.start), to: fmtTime(slot.start + slot.len), city: refCity });
+    const lines = slotInfo.rows.map(r => `${r.p.emoji} ${r.p.name} — ${r.day} ${r.from}–${r.to}${r.ok ? "" : ` ${t("outsideHours")}`}`);
     return [head, ...lines].join("\n");
   };
   const importCode = () => {
@@ -340,18 +409,22 @@ export default function App() {
   const editing = editor && !editor.isNew ? people.find(p => p.id === editor.id) : null;
 
   return (
+    <I18n.Provider value={i18n}>
     <div className="app">
       {/* header */}
+      <div className="topbar">
+        <div className="brand-eyebrow" lang="en" dir="ltr">Timezone Sync</div>
+        <LangSwitcher lang={lang} onChange={chooseLang} />
+      </div>
       <header className="top">
         <div className="brand">
-          <div className="brand-eyebrow">Timezone Sync</div>
-          <h1>Найди окно для созвона</h1>
+          <h1>{t("title")}</h1>
         </div>
         <div className="clock">
           <div className="clock-time">{now.toLocaleTimeString("en-GB", { timeZone: refTZ, hour: "2-digit", minute: "2-digit" })}</div>
           <div className="clock-meta">
-            <span>{now.toLocaleDateString("ru-RU", { timeZone: refTZ, weekday: "short", day: "numeric", month: "long" })}</span>
-            <label htmlFor="ref-tz">· мой пояс</label>
+            <span>{fmtLongDate(lang, now, refTZ)}</span>
+            <label htmlFor="ref-tz">· {t("myZone")}</label>
             <TzSelect id="ref-tz" value={refTZ} onChange={chooseRefTZ} now={now} />
           </div>
         </div>
@@ -360,23 +433,23 @@ export default function App() {
       {/* notices */}
       {notice?.kind === "link" && (
         <div className="notice" role="status">
-          <span>Загружена конфигурация из {EMBED ? "кода" : "ссылки"}. Она сохранена как твоя.</span>
-          {notice.backup && <button className="btn small" onClick={() => { setPeople(notice.backup); setNotice(null); }}>Вернуть мою</button>}
-          <button className="btn small ghost" onClick={() => setNotice(null)}>Понятно</button>
+          <span>{t(EMBED ? "loadedCode" : "loadedLink")}</span>
+          {notice.backup && <button className="btn small" onClick={() => { setPeople(notice.backup); setNotice(null); }}>{t("restoreMine")}</button>}
+          <button className="btn small ghost" onClick={() => setNotice(null)}>{t("gotIt")}</button>
         </div>
       )}
       {notice?.kind === "badlink" && (
         <div className="notice bad" role="alert">
-          <span>{EMBED ? "Код повреждён или обрезан" : "Ссылка повреждена или обрезана"}. Показана твоя сохранённая конфигурация.</span>
-          <button className="btn small ghost" onClick={() => setNotice(null)}>Понятно</button>
+          <span>{t(EMBED ? "badCode" : "badLink")}</span>
+          <button className="btn small ghost" onClick={() => setNotice(null)}>{t("gotIt")}</button>
         </div>
       )}
       {notice?.kind === "copy" && (
         <div className="notice">
-          <span style={{ flex: "0 0 auto", minWidth: 0 }}>Скопируй вручную:</span>
+          <span style={{ flex: "0 0 auto", minWidth: 0 }}>{t("copyManually")}</span>
           <textarea id="copy-text" className="field mono" readOnly autoFocus rows={Math.min(6, notice.text.split("\n").length)}
             value={notice.text} onFocus={e => e.target.select()} style={{ flex: 1, minWidth: "200px", resize: "vertical" }} />
-          <button className="btn small ghost" onClick={() => setNotice(null)}>Готово</button>
+          <button className="btn small ghost" onClick={() => setNotice(null)}>{t("done")}</button>
         </div>
       )}
 
@@ -385,32 +458,32 @@ export default function App() {
         <section className={`slot${golden ? "" : " none"}`} aria-live="polite">
           <div className="slot-head">
             <div className="slot-eyebrow">
-              {sel ? "Выбранное время" : golden ? "Лучшее общее окно" : "Общего окна нет"}
+              {sel ? t("picked") : golden ? t("bestWindow") : t("noWindow")}
               {slotInfo.live
-                ? <span className="pill live">● идёт сейчас</span>
-                : <span className="pill">через {fmtDuration(slotInfo.startsIn * 60)}</span>}
-              {slotInfo.okCount < people.length && <span className="pill warn">свободны {slotInfo.okCount} из {people.length}</span>}
+                ? <span className="pill live">{t("liveNow")}</span>
+                : <span className="pill">{t("startsIn", { d: fmtDuration(lang, slotInfo.startsIn * 60) })}</span>}
+              {slotInfo.okCount < people.length && <span className="pill warn">{t("freeOf", { n: slotInfo.okCount, total: people.length })}</span>}
             </div>
             <div className="slot-time">{fmtTime(slot.start)}–{fmtTime(slot.start + slot.len)}</div>
             <div className="slot-sub">
-              <b>{refDay}</b>, по времени {refCity}
+              <b>{refDay}</b> · {t("cityTime", { city: refCity })}
               {!golden && !sel && partial && (
-                <> · больше всего свободных: {partial.count} из {partial.total}</>
+                <> · {t("mostFree", { n: partial.count, total: partial.total })}</>
               )}
             </div>
             <div className="slot-controls">
-              <span className="dur" aria-label="Длительность">
-                <button className="icon-btn" onClick={() => changeLen(-1)} disabled={slot.len <= 1} aria-label="Короче">−</button>
-                <span className="dur-val">{fmtLen(slot.len)}</span>
-                <button className="icon-btn" onClick={() => changeLen(1)} disabled={slot.len >= MAX_LEN} aria-label="Длиннее">+</button>
+              <span className="dur" aria-label={t("duration")}>
+                <button className="icon-btn" onClick={() => changeLen(-1)} disabled={slot.len <= 1} aria-label={t("shorter")}>−</button>
+                <span className="dur-val">{fmtUnit(lang, slot.len, "hour")}</span>
+                <button className="icon-btn" onClick={() => changeLen(1)} disabled={slot.len >= MAX_LEN} aria-label={t("longer")}>+</button>
               </span>
               <button className={`btn${copied === "invite" ? " done" : " primary"}`} onClick={() => copy(inviteText(), "invite")}>
-                {copied === "invite" ? "✓ Скопировано" : "Скопировать для чата"}
+                {copied === "invite" ? t("copied") : t("copyForChat")}
               </button>
             </div>
             {/* always rendered: the card must not change height while a range is being dragged */}
             <div className="chips">
-                {golden ? <span>Общие окна:</span> : !sel && <span>Можно выбрать другое время на шкале ниже.</span>}
+                {golden ? <span>{t("commonWindows")}</span> : !sel && <span>{t("pickOther")}</span>}
                 {golden?.ranges.map(r => {
                   const on = slot.start === r.start && slot.len === Math.min(r.end - r.start, MAX_LEN);
                   return (
@@ -420,7 +493,7 @@ export default function App() {
                     </button>
                   );
                 })}
-                <button className="chip" onClick={() => setSel(null)} style={{ visibility: sel ? "visible" : "hidden" }}>↺ к лучшему</button>
+                <button className="chip" onClick={() => setSel(null)} style={{ visibility: sel ? "visible" : "hidden" }}>{t("backToBest")}</button>
             </div>
           </div>
           <div className="who">
@@ -429,7 +502,7 @@ export default function App() {
                 <span>{r.p.emoji}</span>
                 <span className="who-name">{r.p.name}<small>{r.p.city}</small></span>
                 <span className="who-time">{r.from}–{r.to}{r.day !== refDay && <em>{r.day}</em>}</span>
-                <span className={`mark ${r.ok ? "ok" : "no"}`} aria-label={r.ok ? "свободен" : "занят"}>{r.ok ? "✓" : "✕"}</span>
+                <span className={`mark ${r.ok ? "ok" : "no"}`} aria-label={r.ok ? t("free") : t("busy")}>{r.ok ? "✓" : "✕"}</span>
               </div>
             ))}
           </div>
@@ -437,33 +510,33 @@ export default function App() {
       ) : (
         <section className="slot none">
           <div className="slot-head">
-            <div className="slot-eyebrow">Общего окна нет</div>
-            <div className="slot-sub">Ни у кого нет отмеченных часов. Нажми на участника и задай его рабочие часы.</div>
+            <div className="slot-eyebrow">{t("noWindow")}</div>
+            <div className="slot-sub">{t("nobodyHours")}</div>
           </div>
         </section>
       )}
 
       {/* toolbar */}
       <div className="toolbar">
-        <div className="seg" role="group" aria-label="Что делает клик по шкале">
-          <button className={mode === "view" ? "on" : ""} aria-pressed={mode === "view"} onClick={() => setMode("view")}>Выбор времени</button>
-          <button className={mode === "edit" ? "on" : ""} aria-pressed={mode === "edit"} onClick={() => setMode("edit")}>Правка часов</button>
+        <div className="seg" role="group" aria-label={t("modeGroup")}>
+          <button className={mode === "view" ? "on" : ""} aria-pressed={mode === "view"} onClick={() => setMode("view")}>{t("modeView")}</button>
+          <button className={mode === "edit" ? "on" : ""} aria-pressed={mode === "edit"} onClick={() => setMode("edit")}>{t("modeEdit")}</button>
         </div>
         <span className="spacer" />
         {importText === null ? (
           <>
-            {EMBED && <button className="btn small" onClick={() => setImportText("")}>Вставить код</button>}
+            {EMBED && <button className="btn small" onClick={() => setImportText("")}>{t("pasteCode")}</button>}
             <button className={`btn small${copied === "share" ? " done" : ""}`} onClick={share}>
-              {copied === "share" ? "✓ Скопировано" : EMBED ? "Скопировать код" : "Поделиться ссылкой"}
+              {copied === "share" ? t("copied") : EMBED ? t("copyCode") : t("shareLink")}
             </button>
           </>
         ) : (
           <div className="import">
-            <input id="import-code" className="field mono" autoFocus value={importText} placeholder="Вставь код или ссылку"
+            <input id="import-code" className="field mono" autoFocus value={importText} placeholder={t("pastePh")}
               onChange={e => setImportText(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") importCode(); if (e.key === "Escape") setImportText(null); }} />
-            <button className="btn small primary" onClick={importCode}>Загрузить</button>
-            <button className="btn small ghost" onClick={() => setImportText(null)} aria-label="Отмена">✕</button>
+            <button className="btn small primary" onClick={importCode}>{t("load")}</button>
+            <button className="btn small ghost" onClick={() => setImportText(null)} aria-label={t("cancel")}>✕</button>
           </div>
         )}
       </div>
@@ -471,11 +544,11 @@ export default function App() {
       {/* day grid */}
       <div className={`grid-wrap ${mode}-mode`}>
         <div className="grid-scroll" ref={scroller}>
-          <div className="grid" role="grid" aria-label="Часы участников по времени выбранного пояса">
+          <div className="grid" role="grid" aria-label={t("gridLabel")}>
             <div className="corner">{refCity}</div>
             {hoursRange(0, 24).map(i => (
               <button key={i} data-col={i} className={`hh${i === nowCol ? " now" : ""}${inSlot(i) ? " sel" : ""}`}
-                onClick={() => setSel({ start: i, len: sel?.len || 1 })} aria-label={`Выбрать ${fmtHour(i)}`}>
+                onClick={() => setSel({ start: i, len: sel?.len || 1 })} aria-label={t("pickHour", { time: fmtHour(i) })}>
                 {pad(i)}
               </button>
             ))}
@@ -487,21 +560,19 @@ export default function App() {
             ))}
 
             {people.length < MAX_PEOPLE && (
-              <button className="add-row" onClick={() => setEditor({ isNew: true })}>+ Добавить участника</button>
+              <button className="add-row" onClick={() => setEditor({ isNew: true })}>{t("addParticipant")}</button>
             )}
           </div>
         </div>
         <div className="grid-foot">
           <div className="legend">
-            <span><i className="sw" style={{ background: "var(--free)" }} />рабочие часы</span>
-            <span><i className="sw" style={{ background: "var(--accent-soft)", borderColor: "var(--accent-line)" }} />все свободны</span>
-            <span><i className="sw" style={{ background: "var(--sleep)" }} />ночь (00–07)</span>
-            <span><i className="sw" style={{ background: "var(--accent)", width: 3, border: 0 }} />сейчас</span>
+            <span><i className="sw" style={{ background: "var(--free)" }} />{t("legendWork")}</span>
+            <span><i className="sw" style={{ background: "var(--accent-soft)", borderColor: "var(--accent-line)" }} />{t("legendAll")}</span>
+            <span><i className="sw" style={{ background: "var(--sleep)" }} />{t("legendNight")}</span>
+            <span><i className="sw" style={{ background: "var(--accent)", width: 3, border: 0 }} />{t("legendNow")}</span>
           </div>
           <span>
-            {mode === "view"
-              ? "Нажми на час или протяни мышью, чтобы выбрать время. Цифры в ячейках — местное время."
-              : "Нажми на ячейку, чтобы включить или выключить час. Мышью можно протянуть."}
+            {mode === "view" ? t("hintView") : t("hintEdit")}
           </span>
         </div>
       </div>
@@ -521,22 +592,24 @@ export default function App() {
 
       {toast && (
         <div className="toast" role="status">
-          <span>Удалён: {toast.person.emoji} {toast.person.name}</span>
-          <button className="btn small" onClick={undoRemove}>Отменить</button>
+          <span>{t("removed", { name: `${toast.person.emoji} ${toast.person.name}` })}</span>
+          <button className="btn small" onClick={undoRemove}>{t("undo")}</button>
         </div>
       )}
     </div>
+    </I18n.Provider>
   );
 }
 
 function Row({ p, golden, inSlot, slot, nowCol, refNow, now, onEdit, onDown, onEnter, onClick }) {
+  const { t, lang } = useI18n();
   return (
     <>
-      <button className="name" onClick={onEdit} title={`${p.city} · ${fmtOffset(p.offset)}\n${describeHours(p.workHours)}\nНажми, чтобы изменить`}>
+      <button className="name" onClick={onEdit} title={`${p.city} · ${fmtOffset(p.offset)}\n${describeHours(p.workHours)}\n${t("editTip")}`}>
         <span className="flag">{p.emoji}</span>
         <span className="name-text">
           <span className="name-main">{p.name}</span>
-          <span className="name-sub"><b>{fmtTime(p.local.decimal)}</b> · {p.workHours.length} ч</span>
+          <span className="name-sub"><b>{fmtTime(p.local.decimal)}</b> · {fmtUnit(lang, p.workHours.length, "hour")}</span>
         </span>
       </button>
       {hoursRange(0, 24).map(i => {
@@ -559,8 +632,8 @@ function Row({ p, golden, inSlot, slot, nowCol, refNow, now, onEdit, onDown, onE
         }
         return (
           <div key={i} className={cls.join(" ")} role="gridcell"
-            data-day={isDay ? new Date(now.getTime() + (i - refNow + 0.5) * 3600e3).toLocaleDateString("ru-RU", { timeZone: p.tz, weekday: "short" }) : undefined}
-            title={`${p.name}: ${fmtTime(localStart)} — ${isFree ? "рабочий час" : "не работает"}`}
+            data-day={isDay ? fmtWeekday(lang, new Date(now.getTime() + (i - refNow + 0.5) * 3600e3), p.tz) : undefined}
+            title={`${p.name}: ${fmtTime(localStart)} — ${isFree ? t("cellWork") : t("cellOff")}`}
             onPointerDown={e => onDown(e, p, i, localHour, isFree)}
             onPointerEnter={e => onEnter(e, p, i, localHour)}
             onClick={() => onClick(p, i, localHour, isFree)}

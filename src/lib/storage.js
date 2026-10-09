@@ -41,20 +41,22 @@ export function rememberBackup(people) {
   try { localStorage.setItem(LS_BACKUP, JSON.stringify(people)); } catch {}
 }
 
-// Call once at module scope (outside StrictMode's double-invoked initializers)
-export function loadInitial() {
+// Call once at module scope (outside StrictMode's double-invoked initializers).
+// makeDefaults: optional () => people for first-time visitors (v1 uses its built-in example)
+export function loadInitial(makeDefaults = () => DEFAULTS) {
   const saved = readSaved();
   const fromLink = takeHash();
-  if (fromLink === "invalid") return { people: saved || DEFAULTS, notice: { kind: "badlink" } };
+  const fallback = () => saved || sanitizePeople(makeDefaults()) || DEFAULTS;
+  if (fromLink === "invalid") return { people: fallback(), notice: { kind: "badlink" } };
   if (fromLink) {
     const backup = saved && !sameConfig(saved, fromLink) ? saved : null;
     if (backup) rememberBackup(backup);
     return { people: fromLink, notice: { kind: "link", backup } };
   }
-  return { people: saved || DEFAULTS, notice: null };
+  return { people: fallback(), notice: null };
 }
 
-const detectTZ = () => {
+export const detectTZ = () => {
   try { return normalizeTZ(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch { return "UTC"; }
 };
 

@@ -17,12 +17,29 @@ Find the perfect meeting window across timezones.
 
 ## Two interfaces
 
-- `index.html` — v1, the original single-screen timeline (`src/App.jsx`)
-- `v2.html` — redesigned interface (`src/v2/`): the answer first (best slot with everyone's local time and a
+- `index.html` — the current interface (`src/v2/`): the answer first (best slot with everyone's local time and a
   "copy for chat" invite), a larger scrollable day grid with local hours inside the cells, a "pick time / edit hours"
   switch, a participant panel with hour presets, light and dark themes, and a "best partial" slot when no common window exists
+- `v1.html` — the original single-screen timeline (`src/App.jsx`, Russian only)
 
-Both share the logic in `src/lib` and the same saved data. After deploy: `/timezone-sync/` and `/timezone-sync/v2.html`.
+Both share the logic in `src/lib` and the same saved data. After deploy: `/timezone-sync/` and `/timezone-sync/v1.html`.
+
+## Languages
+
+English by default, plus the 9 next most spoken languages (Ethnologue 2025, first + second language), in that order:
+中文 · हिन्दी · Español · العربية · Français · বাংলা · Português · Русский · Bahasa Indonesia.
+The browser language is picked automatically (English if it isn't one of these); the switcher in the top corner remembers the choice.
+
+- Strings: `src/v2/i18n.js` (`STRINGS`). Missing keys fall back to English. Numbers, units and weekdays come from `Intl`.
+- Typography per script (`src/v2/styles.css`, "per-script typography"): Golos Text for Cyrillic, Noto Sans SC for Chinese,
+  Hind / Hind Siliguri for Devanagari / Bengali, IBM Plex Sans Arabic for Arabic; only the active language's font is loaded.
+- Arabic is right-to-left: the page mirrors, times and the hour grid stay left-to-right.
+
+## Publish for everyone (GitHub Pages)
+
+`.github/workflows/deploy.yml` builds and publishes on every push to `main`. One-time setup:
+repo **Settings → Pages → Build and deployment → Source: GitHub Actions**. The site appears at
+`https://<user>.github.io/timezone-sync/`.
 
 `npm run build:artifact` (v1) and `npm run build:artifact -- v2` build single-file pages for the Claude artifact viewer.
 
