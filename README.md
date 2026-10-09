@@ -38,9 +38,9 @@ The browser language is picked automatically (English if it isn't one of these);
 
 ## Publish for everyone (GitHub Pages)
 
-`.github/workflows/deploy.yml` builds and publishes on every push to `main`. One-time setup:
-repo **Settings → Pages → Build and deployment → Source: GitHub Actions**. The site appears at
-`https://<user>.github.io/timezone-sync/`.
+`.github/workflows/deploy.yml` tests, builds and pushes `dist/` to the `gh-pages` branch on every push to `main`
+(Pages must serve that branch: **Settings → Pages → Deploy from a branch → gh-pages**). The site is at
+`https://<user>.github.io/timezone-sync/`, the original interface at `/timezone-sync/v1.html`.
 
 `npm run build:artifact` (v1) and `npm run build:artifact -- v2` build single-file pages for the Claude artifact viewer.
 
