@@ -121,3 +121,14 @@ MIT
   (inside `worker/`), then build the site with `VITE_SYNC_URL=http://127.0.0.1:8787`.
 - Deploy: the GitHub workflow deploys the Worker when the repo secrets `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID` exist, and builds the site with its URL. Without them the button is hidden.
+
+## Hosting and domain
+
+- **https://timezone-sync.com.co** — the site and the sync API, served by one Cloudflare Worker (`worker/`, static assets
+  from `vite build --base=/ --outDir dist-cf`). The deploy workflow switches to it automatically once the domain's zone
+  is active in the Cloudflare account (it adds the custom-domain routes and checks the live site before switching).
+- **https://7468096-ux.github.io/timezone-sync/** — after the switch, a redirect page (`deploy/moved.html`). Browsers keep
+  saved data per address, so it forwards the visitor's saved setup once as `#migrate.…`; the new site applies it only if
+  nothing is saved there yet. Shared links (`#v2.…`, `#sync.…`) are forwarded unchanged.
+- Before the switch, GitHub Pages keeps serving the full site and only the sync API runs on Cloudflare (workers.dev).
+- The domain name is set in `.github/workflows/deploy.yml` (`SITE_DOMAIN`) and `worker/wrangler.toml`.

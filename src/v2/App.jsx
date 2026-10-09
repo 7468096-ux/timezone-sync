@@ -5,18 +5,19 @@ import {
 } from "../lib/time.js";
 import { MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig, sanitizePeople } from "../lib/config.js";
 import {
-  EMBED, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId, detectTZ,
+  EMBED, consumeMigration, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId, detectTZ,
 } from "../lib/storage.js";
 import {
   LANGS, langInfo, detectLang, saveLang, makeT, splitTemplate, fmtUnit, fmtDuration, fmtWeekday, fmtLongDate,
   ensureFont, makeDefaults,
 } from "./i18n.js";
 import {
-  SYNC_URL, newKey, parseKey, keyLink, pull as syncPull, push as syncPush, loadKey, saveKey, loadMeta, saveMeta,
+  SYNC_ENABLED, newKey, parseKey, keyLink, pull as syncPull, push as syncPush, loadKey, saveKey, loadMeta, saveMeta,
 } from "../lib/sync.js";
 import qrcode from "qrcode-generator";
 import "./styles.css";
 
+consumeMigration(); // before anything reads saved settings
 const START_LANG = detectLang();
 const exampleTeam = (lang) => sanitizePeople(makeDefaults(lang, detectTZ()));
 const INITIAL = loadInitial(() => exampleTeam(START_LANG));
@@ -215,7 +216,7 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
 }
 
 /* ── device sync sheet ── */
-const SYNC_AVAILABLE = !!SYNC_URL && !EMBED;
+const SYNC_AVAILABLE = SYNC_ENABLED && !EMBED;
 
 function QR({ text }) {
   const svg = useMemo(() => {

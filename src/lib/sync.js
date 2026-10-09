@@ -2,7 +2,10 @@
    The key never leaves the devices in clear: the server sees id = SHA-256("tz-sync:id:" + key)
    and AES-GCM ciphertext encrypted with SHA-256("tz-sync:enc:" + key). */
 
-export const SYNC_URL = (import.meta.env?.VITE_SYNC_URL || "").replace(/\/+$/, "");
+// VITE_SYNC_URL: "" → sync off, "/" → API on the site's own domain, "https://…" → separate service
+const RAW_SYNC_URL = import.meta.env?.VITE_SYNC_URL || "";
+export const SYNC_ENABLED = !!RAW_SYNC_URL;
+export const SYNC_URL = RAW_SYNC_URL.replace(/\/+$/, "");
 const LS_KEY = "tz-sync-device-key";
 const LS_META = "tz-sync-device-meta"; // { localAt, remoteAt, syncedAt }
 
