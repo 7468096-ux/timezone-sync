@@ -40,8 +40,23 @@ jobs:
         working-directory: worker
         run: |
           set -euo pipefail
-          # an empty account id would be passed through as-is; let wrangler find the token's account instead
-          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || unset CLOUDFLARE_ACCOUNT_ID
+          # Tolerate a pasted secret with stray whitespace, or token and account id pasted together
+          # into CLOUDFLARE_API_TOKEN: a 32-hex line is the account id, the other line is the token.
+          token=""; acct="${CLOUDFLARE_ACCOUNT_ID:-}"
+          acct="$(printf '%s' "$acct" | tr -d '[:space:]')"
+          while IFS= read -r line; do
+            line="$(printf '%s' "$line" | tr -d '[:space:]')"
+            [ -z "$line" ] && continue
+            if [[ "$line" =~ ^[0-9a-f]{32}$ ]]; then [ -n "$acct" ] || acct="$line"
+            elif [ -z "$token" ]; then token="$line"
+            else echo "::error::CLOUDFLARE_API_TOKEN holds more than one token-like line"; exit 1
+            fi
+          done <<< "$CLOUDFLARE_API_TOKEN"
+          [ -n "$token" ] || { echo "::error::CLOUDFLARE_API_TOKEN has no token in it"; exit 1; }
+          echo "::add-mask::$token"
+          export CLOUDFLARE_API_TOKEN="$token"
+          # without an account id wrangler picks the token's account
+          if [ -n "$acct" ]; then echo "::add-mask::$acct"; export CLOUDFLARE_ACCOUNT_ID="$acct"; else unset CLOUDFLARE_ACCOUNT_ID; fi
           WR="npx --yes wrangler@4.149.0"
           db_id() { $WR d1 list --json | jq -r '.[] | select(.name == "tz-sync") | .uuid'; }
           ID="$(db_id)"
