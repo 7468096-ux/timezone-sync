@@ -3,14 +3,15 @@ import {
   getTimeInTZ, getOffset, fmtTime, fmtOffset, localHourAt, describeHours, findCommonWindow,
   findBestPartial, freeForSlot, coversRefHour, hoursRange, mod24,
 } from "../lib/time.js";
-import { MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig, sanitizePeople } from "../lib/config.js";
+import { DONATE_URL, MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig, sanitizePeople } from "../lib/config.js";
 import {
   EMBED, consumeMigration, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId, detectTZ,
 } from "../lib/storage.js";
 import {
   LANGS, langInfo, detectLang, saveLang, makeT, splitTemplate, fmtUnit, fmtDuration, fmtWeekday, fmtLongDate,
-  ensureFont, makeDefaults,
+  ensureFont, makeDefaults, fmtNumber,
 } from "./i18n.js";
+import { fetchUsers } from "../lib/counter.js";
 import {
   SYNC_ENABLED, newKey, parseKey, keyLink, pull as syncPull, push as syncPush, loadKey, saveKey, loadMeta, saveMeta,
 } from "../lib/sync.js";
@@ -311,6 +312,8 @@ export default function App() {
   const [syncKey, setSyncKey] = useState(() => (SYNC_AVAILABLE ? loadKey() : null));
   const [syncStatus, setSyncStatus] = useState({ state: "idle", at: loadMeta().syncedAt || 0 });
   const [syncOpen, setSyncOpen] = useState(false);
+  const [users, setUsers] = useState(null);
+  useEffect(() => { fetchUsers().then(setUsers); }, []);
   const drag = useRef(null);                         // { kind: "paint", pid, value } | { kind: "select", anchor }
   const lastPointer = useRef("mouse");
   const scroller = useRef(null);
@@ -789,6 +792,14 @@ export default function App() {
           </span>
         </div>
       </div>
+
+      {(users || DONATE_URL) && (
+        <footer className="foot">
+          {users && <span className="foot-count" title={t("usersTip")}>{t("usersCount", { n: fmtNumber(lang, users) })}</span>}
+          <span className="spacer" />
+          {DONATE_URL && <a className="donate" href={DONATE_URL} target="_blank" rel="noopener noreferrer">{t("donate")}</a>}
+        </footer>
+      )}
 
       {editor && (
         <Editor
