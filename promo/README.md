@@ -42,6 +42,7 @@
 | [06-product-hunt.md](06-product-hunt.md) | Product Hunt | EN | Тексты запуска |
 | [07-more-channels.md](07-more-channels.md) | Подборки «топ-N», каталоги, неочевидные аудитории и каналы | RU | План |
 | [08-ready-texts.md](08-ready-texts.md) | AlternativeTo, r/InternetIsBeautiful, r/LongDistance, 5 писем авторам подборок | EN | Готовые тексты от первого лица |
+| [09-handoff-prompt.md](09-handoff-prompt.md) | Промпт для продолжения в Claude Desktop с браузером | RU | Передача задачи |
 
 ## 4. Порядок публикаций (≈ 4 недели)
 
