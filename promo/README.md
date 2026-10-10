@@ -40,6 +40,7 @@
 | [04-habr.md](04-habr.md) | Хабр | RU | Техническая статья + «Субботний самопиар» |
 | [05-vc-telegram.md](05-vc-telegram.md) | vc.ru, Telegram-каналы, чаты релокантов | RU | История + короткие посты |
 | [06-product-hunt.md](06-product-hunt.md) | Product Hunt | EN | Тексты запуска |
+| [07-more-channels.md](07-more-channels.md) | Подборки «топ-N», каталоги, неочевидные аудитории и каналы | RU | План |
 
 ## 4. Порядок публикаций (≈ 4 недели)
 
