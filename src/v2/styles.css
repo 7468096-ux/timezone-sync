@@ -376,3 +376,25 @@ html:lang(ar) * { letter-spacing: 0 !important; }
   transition: color .15s, border-color .15s;
 }
 .donate:hover { color: var(--accent-ink); border-color: var(--accent-line); border-style: solid; }
+
+/* ── switch (minimal pill toggle) ── */
+.switch {
+  display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent;
+  padding: 4px 2px; font-size: 13px; color: var(--muted);
+}
+.switch-track {
+  position: relative; width: 36px; height: 20px; border-radius: 999px; flex-shrink: 0;
+  background: var(--surface); border: 1px solid var(--line-strong);
+  transition: background .2s ease, border-color .2s ease;
+}
+.switch-knob {
+  position: absolute; top: 1px; left: 1px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25), 0 2px 6px rgba(0, 0, 0, .12);
+  transition: transform .2s ease;
+}
+.switch[aria-checked="true"] { color: var(--fg); }
+.switch[aria-checked="true"] .switch-track { background: var(--accent); border-color: var(--accent); }
+.switch[aria-checked="true"] .switch-knob { transform: translateX(16px); }
+.switch:hover .switch-track { border-color: var(--accent-line); }
+[dir="rtl"] .switch[aria-checked="true"] .switch-knob { transform: translateX(-16px); }
+[dir="rtl"] .switch-knob { left: auto; right: 1px; }
