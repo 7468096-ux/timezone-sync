@@ -1,5 +1,5 @@
 /* ── timezones, share-link format, validation ── */
-import { hoursRange, isValidTZ, encodeHours, decodeHours, getOffset } from "./time.js";
+import { hoursRange, isValidTZ, encodeHours, decodeHours, getOffset, slotsFromHours, hoursFromSlots } from "./time.js";
 
 // ORDER IS PART OF THE SHARE-LINK FORMAT: links store the index into this list.
 // Only append new entries, never reorder or remove.
@@ -90,14 +90,20 @@ export function sanitizePeople(arr) {
       hours = hoursRange(Math.max(0, s), Math.min(24, e));
     }
     hours = [...new Set(hours.filter(h => Number.isInteger(h) && h >= 0 && h < 24))].sort((a, b) => a - b);
+    // slots (local half-hours 0..47) are the source of truth; workHours = whole hours, kept for v1 and old links
+    const slots = Array.isArray(raw.slots)
+      ? [...new Set(raw.slots.filter(k => Number.isInteger(k) && k >= 0 && k < 48))].sort((a, b) => a - b)
+      : slotsFromHours(hours);
     const city = String(raw.city ?? "").trim().slice(0, MAX_TEXT) || cityFor(tz);
     const name = String(raw.name ?? "").trim().slice(0, MAX_TEXT) || city;
-    out.push({ id: out.length + 1, name, city, tz, emoji: flagFor(tz), workHours: hours });
+    out.push({ id: out.length + 1, name, city, tz, emoji: flagFor(tz), workHours: hoursFromSlots(slots), slots });
   }
   return out.length ? out : null;
 }
 
 /* ── share-link format ──
+   hours field: 6 hex = 24-bit mask of whole hours; 12 hex = two 24-bit masks of half-hours (0–23, 24–47),
+   used only when someone's schedule has half hours (old links stay short and readable by old versions).
    v2: "v2." + people joined by ","; fields joined by "~"; text fields percent-encoded
        (so "," and "~" inside names are safe). tz = index in TZ_INDEX or raw IANA name.
    legacy (still decoded): encodeURIComponent("name~city~tz~hex,…"), 5-field start/end
@@ -109,8 +115,23 @@ export function encodeConfig(people) {
   return "v2." + people.map(p => {
     const zi = TZ_INDEX.indexOf(normalizeTZ(p.tz));
     const tz = zi >= 0 ? String(zi) : esc(p.tz);
-    return [esc(p.name), esc(p.city), tz, encodeHours(p.workHours)].join("~");
+    return [esc(p.name), esc(p.city), tz, encodeSchedule(p)].join("~");
   }).join(",");
+}
+
+function encodeSchedule(p) {
+  const slots = p.slots ?? slotsFromHours(p.workHours);
+  const whole = hoursFromSlots(slots);
+  if (slotsFromHours(whole).length === slots.length) return encodeHours(whole);
+  return encodeHours(slots.filter(k => k < 24)) + encodeHours(slots.filter(k => k >= 24).map(k => k - 24));
+}
+
+function decodeSchedule(hex) {
+  if (typeof hex === "string" && hex.length === 12) {
+    const lo = decodeHours(hex.slice(0, 6)), hi = decodeHours(hex.slice(6));
+    if (lo && hi) return { slots: [...lo, ...hi.map(k => k + 24)] };
+  }
+  return { workHours: decodeHours(hex) ?? [] };
 }
 
 const tzFromToken = (t) => (/^\d+$/.test(t) && Number(t) < TZ_INDEX.length ? TZ_INDEX[Number(t)] : t);
@@ -121,7 +142,7 @@ export function decodeConfig(hash) {
     if (hash.startsWith("v2.")) {
       return sanitizePeople(hash.slice(3).split(",").map(part => {
         const [name, city, tz, hex] = part.split("~");
-        return { name: unesc(name ?? ""), city: unesc(city ?? ""), tz: tzFromToken(unesc(tz ?? "")), workHours: decodeHours(hex) ?? [] };
+        return { name: unesc(name ?? ""), city: unesc(city ?? ""), tz: tzFromToken(unesc(tz ?? "")), ...decodeSchedule(hex) };
       }));
     }
     const decoded = unesc(hash);

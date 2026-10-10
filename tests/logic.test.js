@@ -159,3 +159,34 @@ test("sync: key parsing and end-to-end encryption roundtrip", async () => {
   assert.deepEqual(await decryptPayload(k, box), payload);
   await assert.rejects(() => decryptPayload(newKey(), box)); // wrong key can't read it
 });
+
+test("half-hour model: India (+5:30) seen from Berlin (+2)", async () => {
+  const { slotsFromHours, hoursFromSlots, findCommonSpan, freeForSpan, slotsInSpan, describeSlots } = await import("../src/lib/time.js");
+  // India works 11:00–20:00 local; Berlin person 9–18 local
+  const india = { offset: 5.5, slotSet: new Set(slotsFromHours(hoursRange(11, 20))) };
+  const berlin = { offset: 2, slotSet: new Set(slotsFromHours(hoursRange(9, 18))) };
+  // Berlin 16:00–16:30 = India 19:30–20:00 (free); 16:30–17:00 = India 20:00–20:30 (not)
+  assert.equal(freeForSpan(india.slotSet, 16, 0.5, 3.5), true);
+  assert.equal(freeForSpan(india.slotSet, 16.5, 0.5, 3.5), false);
+  const w = findCommonSpan([india, berlin], 2);
+  assert.deepEqual(w.best, { start: 9, end: 16.5 }); // Berlin 9:00–16:30 = India 12:30–20:00
+  // adding India's 20:00–20:30 half extends the window by exactly half an hour
+  india.slotSet.add(40);
+  assert.deepEqual(findCommonSpan([india, berlin], 2).best, { start: 9, end: 17 });
+  assert.deepEqual(slotsInSpan(19.5, 0.5), [39]);
+  assert.deepEqual(slotsInSpan(23.75, 0.5), [47, 0]); // a quarter offset touches two slots, wraps midnight
+  assert.deepEqual(hoursFromSlots([18, 19, 20]), [9]);
+  assert.equal(describeSlots([39, 40, 41]), "19:30–21:00");
+});
+
+test("share links: half-hour schedules roundtrip, whole-hour links stay short", () => {
+  const [p] = sanitizePeople([{ name: "Priya", tz: "Asia/Kolkata", slots: [22, 23, 24, 39, 40] }]);
+  assert.deepEqual(p.workHours, [11]);              // only 11:00–12:00 is a whole hour
+  const link = encodeConfig([p]);
+  assert.match(link, /~[0-9a-f]{12}$/);
+  assert.deepEqual(decodeConfig(link)[0].slots, [22, 23, 24, 39, 40]);
+  const whole = sanitizePeople([{ name: "Ann", tz: "Europe/Paris", workHours: [9, 10] }]);
+  assert.deepEqual(whole[0].slots, [18, 19, 20, 21]);
+  assert.match(encodeConfig(whole), /~[0-9a-f]{6}$/);
+  assert.deepEqual(decodeConfig(encodeConfig(whole)), whole);
+});

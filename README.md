@@ -89,7 +89,7 @@ npm run build
 
 Click **🔗 Поделиться ссылкой** — it encodes your current people/timezones/work hours into the URL hash. When someone opens that link, they see your exact configuration; the hash is then removed from the address bar so a reload doesn't undo their edits. No server involved.
 
-Format (`v2`): `#v2.name~city~tz~hours,…` — text is percent-encoded (commas/tildes in names are safe), `tz` is an index into the timezone table or an IANA name, `hours` is a 24-bit hex mask. Older link formats still open.
+Format (`v2`): `#v2.name~city~tz~hours,…` — text is percent-encoded (commas/tildes in names are safe), `tz` is an index into the timezone table or an IANA name, `hours` is a 24-bit hex mask of whole hours, or 12 hex digits (48 half-hours) when someone's schedule has half hours. Older link formats still open.
 
 ## Customize
 
@@ -143,3 +143,10 @@ MIT
 - **"Buy me a coffee"** button with a colloquial phrase per language. It appears once a link is set: either
   `DONATE_URL` in `src/lib/config.js` or the repository variable `DONATE_URL` (Settings → Secrets and variables →
   Actions → Variables), which the deploy workflow passes to the build.
+
+## Half-hour precision
+
+Schedules are stored as local half-hours (`slots`, 0–47; `workHours` keeps the whole hours for v1 and old links).
+The common window is found to the half hour, so a shared 30 minutes lights up on its own. For people whose time zone is
+offset by half an hour from yours (India seen from Europe), each half of a grid cell is a separate local half-hour and is
+toggled on its own; for everyone else a click sets the whole hour. Meeting length changes in 30-minute steps.
