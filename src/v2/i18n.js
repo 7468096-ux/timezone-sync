@@ -72,6 +72,7 @@ const S = {
     usersCount: "Users: {n}", usersTip: "Each browser is counted once, anonymously: no names, no IP addresses.",
     donate: "☕ Buy me a coffee",
     cellPart: "partly working hours",
+    halfHours: "Half hours", halfTip: "Split every hour in two to choose 30-minute slots",
     language: "Language", you: "You", design: "Design", sales: "Sales", engineering: "Engineering",
   },
   zh: {
@@ -124,6 +125,7 @@ const S = {
     usersCount: "用户：{n}", usersTip: "每个浏览器只计一次，完全匿名：不记录姓名和 IP 地址。",
     donate: "🧋 请我喝杯奶茶",
     cellPart: "部分在工作时间内",
+    halfHours: "半小时", halfTip: "把每个小时分成两半，按 30 分钟选择",
     language: "语言", you: "你", design: "设计", sales: "销售", engineering: "工程",
   },
   hi: {
@@ -178,6 +180,7 @@ const S = {
     usersCount: "उपयोगकर्ता: {n}", usersTip: "हर ब्राउज़र एक बार गिना जाता है, गुमनाम रूप से: न नाम, न IP पता।",
     donate: "☕ एक कटिंग चाय हो जाए",
     cellPart: "आंशिक रूप से काम के घंटे",
+    halfHours: "आधे घंटे", halfTip: "हर घंटे को दो हिस्सों में बाँटें और 30 मिनट चुनें",
     language: "भाषा", you: "आप", design: "डिज़ाइन", sales: "सेल्स", engineering: "इंजीनियरिंग",
   },
   es: {
@@ -232,6 +235,7 @@ const S = {
     usersCount: "Usuarios: {n}", usersTip: "Cada navegador cuenta una vez y de forma anónima: sin nombres ni direcciones IP.",
     donate: "☕ Invítame un cafecito",
     cellPart: "en parte en horario laboral",
+    halfHours: "Medias horas", halfTip: "Dividir cada hora en dos para elegir tramos de 30 minutos",
     language: "Idioma", you: "Tú", design: "Diseño", sales: "Ventas", engineering: "Ingeniería",
   },
   ar: {
@@ -284,6 +288,7 @@ const S = {
     usersCount: "المستخدمون: {n}", usersTip: "يُحتسب كل متصفح مرة واحدة وبشكل مجهول: بلا أسماء ولا عناوين IP.",
     donate: "☕ اعزمني على فنجان قهوة",
     cellPart: "جزئيًا ضمن ساعات العمل",
+    halfHours: "أنصاف الساعات", halfTip: "قسّم كل ساعة إلى نصفين لاختيار فترات من 30 دقيقة",
     language: "اللغة", you: "أنت", design: "التصميم", sales: "المبيعات", engineering: "الهندسة",
   },
   fr: {
@@ -338,6 +343,7 @@ const S = {
     usersCount: "Utilisateurs : {n}", usersTip: "Chaque navigateur est compté une fois, anonymement : ni nom, ni adresse IP.",
     donate: "☕ Offre-moi un p'tit noir",
     cellPart: "en partie pendant les heures de travail",
+    halfHours: "Demi-heures", halfTip: "Couper chaque heure en deux pour choisir par 30 minutes",
     language: "Langue", you: "Vous", design: "Design", sales: "Ventes", engineering: "Ingénierie",
   },
   bn: {
@@ -392,6 +398,7 @@ const S = {
     usersCount: "ব্যবহারকারী: {n}", usersTip: "প্রতিটি ব্রাউজার একবারই গোনা হয়, নাম বা IP ঠিকানা ছাড়াই।",
     donate: "☕ এক ভাঁড় চা খাওয়াও",
     cellPart: "আংশিক কাজের সময়",
+    halfHours: "আধা ঘণ্টা", halfTip: "প্রতিটি ঘণ্টা দুই ভাগ করে 30 মিনিট করে বাছুন",
     language: "ভাষা", you: "আপনি", design: "ডিজাইন", sales: "সেলস", engineering: "ইঞ্জিনিয়ারিং",
   },
   pt: {
@@ -446,6 +453,7 @@ const S = {
     usersCount: "Usuários: {n}", usersTip: "Cada navegador conta uma vez, de forma anônima: sem nomes nem endereços IP.",
     donate: "☕ Me paga um cafezinho",
     cellPart: "em parte no horário de trabalho",
+    halfHours: "Meias horas", halfTip: "Dividir cada hora ao meio para escolher blocos de 30 minutos",
     language: "Idioma", you: "Você", design: "Design", sales: "Vendas", engineering: "Engenharia",
   },
   ru: {
@@ -500,6 +508,7 @@ const S = {
     usersCount: "Пользователей: {n}", usersTip: "Каждый браузер считается один раз и анонимно: без имён и IP-адресов.",
     donate: "☕ На кофеёк",
     cellPart: "частично в рабочие часы",
+    halfHours: "По полчаса", halfTip: "Делить каждый час пополам, чтобы выбирать по 30 минут",
     language: "Язык", you: "Ты", design: "Дизайн", sales: "Продажи", engineering: "Разработка",
   },
   id: {
@@ -554,6 +563,7 @@ const S = {
     usersCount: "Pengguna: {n}", usersTip: "Setiap browser dihitung sekali secara anonim: tanpa nama dan alamat IP.",
     donate: "☕ Traktir kopi dong",
     cellPart: "sebagian jam kerja",
+    halfHours: "Setengah jam", halfTip: "Bagi setiap jam menjadi dua untuk memilih 30 menit",
     language: "Bahasa", you: "Anda", design: "Desain", sales: "Penjualan", engineering: "Teknik",
   },
 };

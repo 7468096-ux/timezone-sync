@@ -317,6 +317,12 @@ export default function App() {
   const [toast, setToast] = useState(null);          // { person, index }
   const [editor, setEditor] = useState(null);        // null | { id } | { isNew: true }
   const [mode, setMode] = useState("view");          // "view": pick time · "edit": toggle hours
+  // split every hour into two separately selectable halves (half-hour zones are always split)
+  const [halfMode, setHalfMode] = useState(() => { try { return localStorage.getItem("tz-sync-half") === "1"; } catch { return false; } });
+  const toggleHalfMode = () => setHalfMode(v => {
+    try { localStorage.setItem("tz-sync-half", v ? "0" : "1"); } catch {}
+    return !v;
+  });
   const [sel, setSel] = useState(null);              // user-picked slot { start, len } in reference hours
   const [copied, setCopied] = useState(null);        // "share" | "invite"
   const [importText, setImportText] = useState(null);
@@ -746,6 +752,10 @@ export default function App() {
           <button className={mode === "view" ? "on" : ""} aria-pressed={mode === "view"} onClick={() => setMode("view")}>{t("modeView")}</button>
           <button className={mode === "edit" ? "on" : ""} aria-pressed={mode === "edit"} onClick={() => setMode("edit")}>{t("modeEdit")}</button>
         </div>
+        <button className="switch" role="switch" aria-checked={halfMode} onClick={toggleHalfMode} title={t("halfTip")}>
+          <span className="switch-track" aria-hidden="true"><span className="switch-knob" /></span>
+          <span className="switch-label">{t("halfHours")}</span>
+        </button>
         <span className="spacer" />
         {importText === null ? (
           <>
@@ -794,6 +804,7 @@ export default function App() {
 
             {enriched.map(p => (
               <Row key={p.id} p={p} goldenSet={goldenSet} inHalf={inHalf} slot={slot} nowCol={nowCol} refNow={refNow} now={now}
+                halfMode={halfMode}
                 onEdit={() => setEditor({ id: p.id })}
                 onDown={cellDown} onEnter={cellEnter} onClick={cellClick} />
             ))}
@@ -853,12 +864,12 @@ export default function App() {
   );
 }
 
-function Row({ p, goldenSet, inHalf, slot, nowCol, refNow, now, onEdit, onDown, onEnter, onClick }) {
+function Row({ p, goldenSet, inHalf, slot, nowCol, refNow, now, halfMode, onEdit, onDown, onEnter, onClick }) {
   const { t, lang } = useI18n();
   const slotCount = p.slotSet.size;
   // With a half-hour offset (India seen from Berlin) each half of a cell is its own local half-hour,
   // so halves are chosen separately; otherwise a click sets the whole hour.
-  const splitRow = !Number.isInteger(p.diff);
+  const splitRow = halfMode || !Number.isInteger(p.diff);
   const selStart = slot ? mod48(slot.start * 2) : -1;
   const selEnd = slot ? mod48(slot.start * 2 + slot.len * 2 - 1) : -1;
   return (
