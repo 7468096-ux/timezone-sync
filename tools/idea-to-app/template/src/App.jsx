@@ -7,7 +7,7 @@ import { parseKey, keyLink } from "./lib/sync.js";
 import { useDeviceSync, SYNC_AVAILABLE } from "./lib/useDeviceSync.js";
 import { fetchUsers } from "./lib/counter.js";
 import { LANGS, langInfo, detectLang, saveLang, makeT, ensureFont, fmtNumber } from "./i18n.js";
-import { sanitizeState, makeExample, addItem, toggleItem, removeItem, restoreItem } from "./core/model.js";
+import { sanitizeState, makeExample, addItem, toggleItem, removeItem, restoreItem } from "./core/model.js"; // DEMO: your model's functions
 import "./styles.css";
 
 /* ── start-up: language, saved state, then a link in the address bar (if any) ── */
@@ -16,13 +16,13 @@ const START = (() => {
   const saved = sanitizeState(load("state"));
   const hash = takeHash();
   const sync = hash.match(/^sync\.([A-Za-z0-9_-]{22})$/);
-  if (sync) return { state: saved || makeExample(makeT(START_LANG)), notice: SYNC_AVAILABLE ? { kind: "sync", key: sync[1] } : null };
+  if (sync) return { state: saved || makeExample(makeT(START_LANG), START_LANG), notice: SYNC_AVAILABLE ? { kind: "sync", key: sync[1] } : null };
   const shared = hash ? decodeShare(hash, sanitizeState) : null;
   if (shared && shared !== "invalid") {
     if (saved) save("backup", saved);           // a shared link never silently destroys your own data
     return { state: shared, notice: { kind: "loaded", backup: !!saved } };
   }
-  return { state: saved || makeExample(makeT(START_LANG)), notice: shared === "invalid" ? { kind: "bad" } : null };
+  return { state: saved || makeExample(makeT(START_LANG), START_LANG), notice: shared === "invalid" ? { kind: "bad" } : null };
 })();
 
 const I18n = createContext({ lang: "en", t: makeT("en") });
@@ -176,7 +176,7 @@ export default function App() {
   const [importText, setImportText] = useState(null); // null = paste field hidden
   const [syncOpen, setSyncOpen] = useState(false);
   const [users, setUsers] = useState(null);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState("");            // DEMO
   const sync = useDeviceSync(state, setState, sanitizeState);
 
   useEffect(() => { applyDocumentLang(lang); }, [lang]);
@@ -200,12 +200,13 @@ export default function App() {
   });
 
   const chooseLang = (code) => { setLang(code); saveLang(code); };
-  const applyShared = (shared) => {
+  // from: "link" (address bar) or "code" (pasted) — only the wording differs
+  const applyShared = (shared, from = "link") => {
     if (!shared) return;
-    if (shared === "invalid") { setNotice({ kind: "bad" }); return; }
+    if (shared === "invalid") { setNotice({ kind: "bad", from }); return; }
     save("backup", state);
     setState(shared);
-    setNotice({ kind: "loaded", backup: true });
+    setNotice({ kind: "loaded", backup: true, from });
   };
   const restoreMine = () => {
     const backup = sanitizeState(load("backup"));
@@ -216,6 +217,8 @@ export default function App() {
     if (await copyText(text)) { setCopied(what); setTimeout(() => setCopied(null), 2000); }
     else setManual(text);
   };
+  // DEMO: removal with Undo. In a real app removed things can have kinds and links (a person ticked on
+  // dishes): return { kind, item, index, links } from the model and restore the links too.
   const remove = (id) => {
     const r = removeItem(state, id);
     setState(r.state);
@@ -228,21 +231,21 @@ export default function App() {
       <div className="topbar">
         <div className="brand-eyebrow" lang="en" dir="ltr">{APP_NAME}</div>
         <span className="spacer" />
-        {EMBED && <a className="btn small ghost" href={`${SITE_URL}/#${encodeShare(state)}`} target="_blank" rel="noopener noreferrer">{t("openOnSite")}</a>}
+        {EMBED && SITE_URL && <a className="btn small ghost" href={`${SITE_URL}/#${encodeShare(state)}`} target="_blank" rel="noopener noreferrer">{t("openOnSite")}</a>}
         <LangSwitcher lang={lang} onChange={chooseLang} />
       </div>
       <header className="top"><h1>{t("title")}</h1></header>
 
       {notice?.kind === "loaded" && (
         <div className="notice" role="status">
-          <span>{t("loadedLink")}</span>
+          <span>{t(notice.from === "code" ? "loadedCode" : "loadedLink")}</span>
           {notice.backup && <button className="btn small" onClick={restoreMine}>{t("restoreMine")}</button>}
           <button className="btn small ghost" onClick={() => setNotice(null)}>{t("gotIt")}</button>
         </div>
       )}
       {notice?.kind === "bad" && (
         <div className="notice bad" role="alert">
-          <span>{t("badLink")}</span>
+          <span>{t(notice.from === "code" ? "badCode" : "badLink")}</span>
           <button className="btn small ghost" onClick={() => setNotice(null)}>{t("gotIt")}</button>
         </div>
       )}
@@ -261,7 +264,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── DEMO CONTENT: replace with the real app; keep "answer first", big touch targets ── */}
+      {/* ── DEMO CONTENT: replace with the real app; answer card first, big touch targets ── */}
       <main className="card">
         <form className="row" onSubmit={e => { e.preventDefault(); setState(addItem(state, draft)); setDraft(""); }}>
           <input className="field" value={draft} placeholder={t("itemPh")} onChange={e => setDraft(e.target.value)} />
@@ -293,7 +296,7 @@ export default function App() {
       {importText !== null && (
         <div className="row">
           <input className="field mono" autoFocus value={importText} placeholder={t("pastePh")} onChange={e => setImportText(e.target.value)} />
-          <button className="btn small primary" onClick={() => { applyShared(decodeShare(importText, sanitizeState) || "invalid"); setImportText(null); }}>{t("load")}</button>
+          <button className="btn small primary" onClick={() => { applyShared(decodeShare(importText, sanitizeState) || "invalid", "code"); setImportText(null); }}>{t("load")}</button>
           <button className="btn small ghost" onClick={() => setImportText(null)}>{t("cancel")}</button>
         </div>
       )}
@@ -307,7 +310,7 @@ export default function App() {
       )}
 
       {syncOpen && <SyncSheet sync={sync} onClose={() => setSyncOpen(false)} />}
-      {toast && (
+      {toast && ( /* DEMO: toast text/undo use the demo model */
         <div className="toast" role="status">
           <span>{t("removed", { name: toast.removed.item.text })}</span>
           <button className="btn small" onClick={() => { setState(restoreItem(state, toast.removed)); setToast(null); }}>{t("undo")}</button>

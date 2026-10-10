@@ -54,6 +54,14 @@ Theme follows the system (`prefers-color-scheme`); both themes must be checked.
 A flat circle in the accent colour (inline SVG data URI in `index.html`, `fill='%23<hex>'`).
 No gradients, no emoji. Change it together with `--accent`.
 
+## Money
+
+Store integer minor units (cents/kopeks), never floats; splits must add up exactly (distribute the
+leftover cents deterministically). Accept typed amounts with comma or dot, spaces and symbols.
+Show with `Intl.NumberFormat(locale + "-u-nu-latn", { style: "currency", currency })` in results *and*
+inputs (don't show "700.00" in an input next to "3 795,00 ₽" in the result). Amounts are LTR islands
+inside RTL text. Let the user pick the currency; default from the language.
+
 ## Copy
 
 Short, human, second person. Buttons are verbs ("Copy for chat", "Share link"). Times show minutes

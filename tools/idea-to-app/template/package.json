@@ -1,6 +1,7 @@
 {
   "name": "__APP_SLUG__",
   "private": true,
+  "engines": { "node": ">=22" },
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -8,7 +9,8 @@
     "build": "vite build",
     "build:artifact": "node scripts/build-artifact.mjs",
     "preview": "vite preview",
-    "test": "node --test 'tests/*.test.js'"
+    "test": "node --test 'tests/*.test.js'",
+    "verify": "node scripts/verify.mjs"
   },
   "dependencies": {
     "qrcode-generator": "^1.4.4",

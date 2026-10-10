@@ -52,7 +52,7 @@ button { cursor: pointer; }
 .field.mono { font-family: var(--mono); font-size: 12px; direction: ltr; unicode-bidi: isolate; }
 .empty { color: var(--faint); font-size: 14px; padding: 8px 2px; }
 
-/* demo list */
+/* DEMO: list styles — replace with the real app's */
 .list { list-style: none; display: flex; flex-direction: column; }
 .list li { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-top: 1px solid var(--line); }
 .list li:first-child { border-top: 0; }

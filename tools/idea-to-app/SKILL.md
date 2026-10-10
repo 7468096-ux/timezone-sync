@@ -33,14 +33,19 @@ Always offer Level 2 at the end of Level 1 in one line.
 
 Work in this order; each phase has a short checklist in `references/quality-checklist.md`.
 
-1. **Scaffold.** `node scripts/new-app.mjs --out <dir> --name "<Name>" [--domain d] [--donate url] [--accent hex]`,
-   then `npm install && npm test && npm run build`. The template already contains:
+1. **Scaffold** (Node 22+). From the skill folder:
+   `node scripts/new-app.mjs --out <dir> --name "<Name>" [--slug s] [--tagline "<meta description>"] [--domain d] [--donate url] [--accent hex]`,
+   then in `<dir>`: `npm install && npm test && npm run build`. Without `--domain` the artifact's
+   "Open on the website" link stays hidden. `--donate` defaults to the owner's Ko-fi
+   (https://ko-fi.com/aleks_lou) — keep it unless told otherwise. The template already contains:
    language switcher + 10 languages, RTL, per-script fonts, light/dark tokens, share link + code
    (with damaged-link notice and "restore mine"), Undo toast, device sync (E2E-encrypted, QR pairing),
    anonymous user counter, donate button, Claude-artifact build with "Open on the website ↗",
    Cloudflare Worker (site + API + HTTPS/security headers) with D1, deploy workflow with live check,
-   tests for model/share/sync/worker. Replace the demo list (`src/core/model.js`, the DEMO block in
-   `src/App.jsx`, demo strings in `src/i18n.js`) with the real app.
+   tests for model/share/sync/worker, and a browser check (`npm run verify`). Replace the demo list —
+   every spot is marked, find them with `grep -rn DEMO src`: `src/core/model.js` (incl.
+   `makeExample(t, lang)`), imports/state/list/toast in `src/App.jsx`, the list styles in
+   `src/styles.css`, demo strings in all 10 blocks of `src/i18n.js`, and `tests/core.test.js`.
 2. **Model first, with tests.** Pure functions in `src/core/`. Model the domain at its *true*
    granularity (Timezone Sync needed half-hour slots, not hours with drawing tricks). Every input from
    links, storage or sync goes through `sanitizeState` — bad data is dropped, never crashes, never saved.
@@ -48,13 +53,21 @@ Work in this order; each phase has a short checklist in `references/quality-chec
    two things. Undo instead of "are you sure". Pointer drag with a global `pointerup` stop. Layout never
    jumps while interacting. Phone width 390 px with no horizontal page scroll. First visit shows example
    data, in the visitor's language, that demonstrates success (never an error screen).
+   Undo must restore links too: when removing a thing other things point to (a person ticked on
+   dishes), return `{ kind, item, index, links }` from the model and put everything back.
 4. **Languages.** All strings in `src/i18n.js`, in all 10 languages; owner's language pinned second.
+   Add keys to all languages at once: write a JSON `{ key: { en, ru, zh, hi, es, ar, fr, bn, pt, id } }`
+   and run `node scripts/i18n-add.mjs <dir>/src/i18n.js strings.json [--remove demoKey1,…]`.
+   Add a test that every key exists in all 10 languages.
    See `references/i18n.md` (fonts per script, RTL, Latin digits, Intl formatting, local "coffee" slang).
 5. **Sharing & sync.** Links and codes per `references/sharing-sync.md`. Formats are forever: only
    append, keep decoding old ones.
-6. **Verify like a user.** Tests, build, then drive the real page in a headless browser: desktop + 390 px,
-   dark + light, Arabic (RTL), the main flows, a broken link, console errors = 0. Look at the
-   screenshots yourself before claiming anything. Re-read your diff adversarially.
+6. **Verify like a user.** `npm test`, `npm run build:artifact`, then `npm run verify` (generic checks:
+   desktop dark + phone light screenshots, Arabic RTL, no sideways scroll at 390 px in all 10 languages,
+   damaged link, 0 console errors). Add the app's main flows in `tests/flows.mjs`
+   (`export default async ({ page, check, shot, open }) => {…}` — add, edit, remove + Undo, the answer
+   updates, share code roundtrip). Look at the screenshots yourself before claiming anything. Re-read
+   your diff adversarially.
 7. **Ship.** Level 1: `npm run build:artifact`, publish `dist-artifact/<slug>.html`; republish the same
    path to keep the URL. Level 2: branch → PR → merge → watch the Deploy run until the live check passes.
 8. **Report** (format below).
@@ -92,7 +105,8 @@ In the user's language, structured, short:
 
 ## Files
 
-- `template/` — the working starter app (copied by `scripts/new-app.mjs`).
+- `template/` — the working starter app (copied by `scripts/new-app.mjs`); `npm run verify` inside it.
+- `scripts/i18n-add.mjs` — add/replace/remove strings in all 10 languages at once.
 - `references/spec-template.md` — the "improved prompt" spec.
 - `references/design-system.md` — tokens, components, layout rules, favicon.
 - `references/i18n.md` — the 10 languages, fonts, RTL, formatting, coffee phrases.

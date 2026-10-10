@@ -27,7 +27,7 @@ push or publish. These items come from real defects found in Timezone Sync.
       "stuck brush" when the mouse is released outside the window or iframe).
 - [ ] Touch: tap works, scrolling doesn't toggle things, targets ≥ 32 px.
 - [ ] Destructive actions have Undo (toast, ~6 s) instead of confirm dialogs; the delete control is
-      visible on phones (no hover-only buttons).
+      visible on phones (no hover-only buttons). Undo restores links (other things that pointed at it).
 - [ ] Everything editable can be edited in place (no "delete and re-add").
 - [ ] Layout doesn't shift during interaction (reserve space for rows that appear).
 - [ ] Keyboard: Esc closes sheets/menus, focus visible, Enter submits.
@@ -55,8 +55,8 @@ push or publish. These items come from real defects found in Timezone Sync.
 ## Pre-ship gate (every push/publish)
 1. `npm test` — all pass.
 2. `npm run build` — no warnings that matter.
-3. Headless browser: desktop 1100 px + phone 390 px; dark + light; Arabic; main flow; broken link;
-   **0 console errors**; look at the screenshots.
+3. `npm run build:artifact && npm run verify` (+ `tests/flows.mjs` for the main flows): desktop + phone,
+   dark + light, Arabic, all languages at 390 px, broken link, **0 console errors**; look at the screenshots.
 4. Re-read the diff as a hostile reviewer: what breaks old links, old saved data, the other UI version,
    RTL, the artifact build?
 5. Only then push / merge / publish. Then confirm the deploy run and live check passed.

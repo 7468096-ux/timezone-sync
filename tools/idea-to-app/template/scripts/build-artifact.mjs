@@ -24,7 +24,9 @@ const title = head.match(/<title>([^<]*)<\/title>/)?.[1] || pkg.name;
 const desc = head.match(/name="description" content="([^"]*)"/)?.[1] || "";
 const fontLinks = (head.match(/<link[^>]+fonts\.(googleapis|gstatic)[^>]*>/g) || []).join("\n");
 
-const html = `<title>${title}</title>
+const html = `<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${title}</title>
 <meta name="description" content="${desc}" />
 ${fontLinks}
 <style>

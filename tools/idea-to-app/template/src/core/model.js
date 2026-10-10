@@ -1,7 +1,7 @@
 /* ── the app's domain logic: pure functions only (no React, no DOM), covered by tests/ ──
    DEMO: a tiny list. Replace this file with the real idea's model, keeping the same contract:
      sanitizeState(anything) → a valid state or null   (everything from links, storage and sync passes here)
-     makeExample(t)          → first-visit content, in the visitor's language                              */
+     makeExample(t, lang)    → first-visit content, in the visitor's language (names, currency…)          */
 const MAX_ITEMS = 200;
 const MAX_TEXT = 200;
 
@@ -17,7 +17,7 @@ export function sanitizeState(raw) {
   return { items };
 }
 
-export const makeExample = (t) => ({
+export const makeExample = (t, lang) => ({ // DEMO
   items: [t("ex1"), t("ex2"), t("ex3")].map((text, i) => ({ id: i + 1, text, done: false })),
 });
 

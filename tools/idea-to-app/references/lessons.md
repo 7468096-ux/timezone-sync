@@ -23,6 +23,7 @@ Read once before starting; it's why the skill works the way it does.
 | 16 | "A toggle to split all cells in half, nice switch, minimalist" + reference image | Pill switch in the app's accent, remembered | Follow reference images; minimal; remember preferences. |
 | 17 | "Orange circle favicon" → "That's not a circle, it's a ball!" → "use the app's yellow accent" | Gradient read as 3D; flat + accent accepted | Literal and flat; brand items use the app accent. |
 | 18 | "Improve the prompt before executing" | Restated the request as a spec first | Step 0 of the skill. |
+| 19 | Dry run of this skill by a fresh agent ("split the bill") | Works end to end (18 tests, 37 browser checks); gaps found: artifact lacked the viewport meta (phone screenshots lied), no ready browser check, a fake site link in Level 1, ты/вы mixed, Undo lost links | Fixed in the template: viewport meta, `npm run verify`, hidden site link without a domain, formal "вы", Undo with links. |
 
 ## What the user values (keep doing)
 
