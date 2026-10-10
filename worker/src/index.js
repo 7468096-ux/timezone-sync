@@ -22,8 +22,13 @@ function corsHeaders(req, env) {
   };
 }
 
+// set at deploy time (wrangler --var APP_VERSION:<git sha>); lets the deploy check wait for the new version
+let appVersion = "dev";
+
 const json = (body, status, headers, cache = "no-store") =>
-  new Response(JSON.stringify(body), { status, headers: { ...headers, "Content-Type": "application/json", "Cache-Control": cache } });
+  new Response(JSON.stringify(body), {
+    status, headers: { ...headers, "Content-Type": "application/json", "Cache-Control": cache, "X-App-Version": appVersion },
+  });
 
 // Only what the page actually loads: its own files, Google Fonts, GoatCounter analytics.
 const CSP = [
@@ -48,6 +53,7 @@ function withSecurityHeaders(res, https) {
   h.set("X-Frame-Options", "DENY");
   h.set("Referrer-Policy", "strict-origin-when-cross-origin");
   h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  h.set("X-App-Version", appVersion);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
@@ -58,6 +64,7 @@ async function usersTotal(env) {
 
 export default {
   async fetch(req, env) {
+    appVersion = env.APP_VERSION || "dev";
     const url = new URL(req.url);
     const host = env.CANONICAL_HOST;
     const onDomain = host && (url.hostname === host || url.hostname === `www.${host}`);

@@ -106,7 +106,7 @@ jobs:
             sed -i "s|^# __ROUTES__|routes = [\n  { pattern = \"$SITE_DOMAIN\", custom_domain = true },\n  { pattern = \"www.$SITE_DOMAIN\", custom_domain = true },\n]|" wrangler.toml
           fi
           $WRANGLER d1 execute tz-sync --remote --file schema.sql --yes
-          $WRANGLER deploy | tee "$RUNNER_TEMP/deploy.log"
+          $WRANGLER deploy --var "APP_VERSION:${GITHUB_SHA::7}" | tee "$RUNNER_TEMP/deploy.log"
           WORKERS_URL="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -1)"
           test -n "$WORKERS_URL" || { echo "::error::No workers.dev URL in deploy output"; exit 1; }
           echo "workers_url=$WORKERS_URL" >> "$GITHUB_OUTPUT"
@@ -123,11 +123,15 @@ jobs:
           ORIGIN: ${{ steps.worker.outputs.custom == 'true' && steps.worker.outputs.site_url || env.GH_PAGES_ORIGIN }}
         run: |
           set -euo pipefail
-          # a new custom domain needs a few minutes for its certificate
+          # a new custom domain needs a few minutes for its certificate, and a new version
+          # a few seconds to reach every Cloudflare location: wait until this very version answers
+          want="${GITHUB_SHA::7}"
           for i in $(seq 1 36); do
-            curl -sf "$URL/" -o /tmp/index.html && grep -q 'id="root"' /tmp/index.html && break
-            echo "waiting for $URL ($i)…"; sleep 10
+            got="$(curl -s -D - -o /tmp/index.html "$URL/" | grep -i '^x-app-version:' | tr -d '\r' | awk '{print $2}')"
+            [ "$got" = "$want" ] && grep -q 'id="root"' /tmp/index.html && break
+            echo "waiting for version $want at $URL (now: ${got:-none}) ($i)…"; sleep 5
           done
+          [ "$got" = "$want" ] || { echo "::error::$URL still serves version '${got:-none}', expected $want"; exit 1; }
           grep -q 'id="root"' /tmp/index.html || { echo "::error::$URL/ does not serve the site"; exit 1; }
           id="$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)"
           code="$(curl -s -o /tmp/get.json -w '%{http_code}' "$URL/v1/s/$id")"
