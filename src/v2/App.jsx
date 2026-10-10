@@ -514,9 +514,13 @@ export default function App() {
   }, [slot?.start, refTZ]);
 
   /* actions */
-  const setHour = (pid, hour, value) => setPeople(prev => prev.map(p => {
-    if (p.id !== pid || p.workHours.includes(hour) === value) return p;
-    const workHours = value ? [...p.workHours, hour].sort((a, b) => a - b) : p.workHours.filter(h => h !== hour);
+  // hours: the local hour(s) a cell covers — two for half-hour time zones
+  const setHour = (pid, hours, value) => setPeople(prev => prev.map(p => {
+    const list = [].concat(hours);
+    if (p.id !== pid || list.every(h => p.workHours.includes(h) === value)) return p;
+    const set = new Set(p.workHours);
+    for (const h of list) value ? set.add(h) : set.delete(h);
+    const workHours = [...set].sort((a, b) => a - b);
     return { ...p, workHours };
   }));
 
@@ -575,28 +579,28 @@ export default function App() {
   };
 
   /* grid cell handlers */
-  const cellDown = (e, p, i, localHour, isFree) => {
+  const cellDown = (e, p, i, hours, isFree) => {
     lastPointer.current = e.pointerType;
     if (e.pointerType !== "mouse" || e.button !== 0) return;
     e.preventDefault();
     if (mode === "edit") {
       drag.current = { kind: "paint", pid: p.id, value: !isFree };
-      setHour(p.id, localHour, !isFree);
+      setHour(p.id, hours, !isFree);
     } else {
       drag.current = { kind: "select", anchor: i };
       setSel({ start: i, len: 1 });
     }
   };
-  const cellEnter = (e, p, i, localHour) => {
+  const cellEnter = (e, p, i, hours) => {
     const d = drag.current;
     if (!d) return;
     if (!(e.buttons & 1)) { drag.current = null; return; } // released outside the window
-    if (d.kind === "paint" && d.pid === p.id) setHour(p.id, localHour, d.value);
+    if (d.kind === "paint" && d.pid === p.id) setHour(p.id, hours, d.value);
     if (d.kind === "select") pickRange(d.anchor, i);
   };
-  const cellClick = (p, i, localHour, isFree) => {
+  const cellClick = (p, i, hours, isFree) => {
     if (lastPointer.current === "mouse") return; // handled on pointerdown
-    if (mode === "edit") setHour(p.id, localHour, !isFree);
+    if (mode === "edit") setHour(p.id, hours, !isFree);
     else setSel({ start: i, len: sel?.len || 1 });
   };
 
@@ -844,14 +848,29 @@ function Row({ p, golden, inSlot, slot, nowCol, refNow, now, onEdit, onDown, onE
       {hoursRange(0, 24).map(i => {
         const localStart = mod24(i + p.diff);
         const localHour = localHourAt(i, p.diff);
-        const shown = Number.isInteger(localStart) ? String(localHour) : fmtTime(localStart);
-        const isFree = p.hourSet.has(localHour);
+        const frac = localStart - Math.floor(localStart);
+        const shown = frac ? fmtTime(localStart) : String(localHour);
+        // With a half-hour (or 45-min) offset the cell covers the end of one local hour and the start of
+        // the next, e.g. 19:30–20:30. Each part is drawn by its own hour, and the cell counts as free only
+        // when both are — exactly like the common-window calculation.
+        const nextHour = (localHour + 1) % 24;
+        const hours = frac ? [localHour, nextHour] : localHour;
+        const firstFree = p.hourSet.has(localHour);
+        const secondFree = frac ? p.hourSet.has(nextHour) : firstFree;
         const fits = coversRefHour(p.hourSet, i, p.diff);
+        const isFree = fits;
+        const partial = firstFree !== secondFree;
         const common = golden && fits && golden.allHours.includes(i);
         const isDay = localStart < 1; // local midnight falls in this cell
         const sl = inSlot(i);
         const cls = ["cell"];
-        if (isFree) cls.push("free"); else if (localHour < 7) cls.push("sleep");
+        const shade = (free, h) => (free ? "var(--free)" : h < 7 ? "var(--sleep)" : "var(--busy)");
+        let style;
+        if (fits) cls.push("free");
+        else if (partial) {
+          cls.push("part");
+          style = { "--split": `${(1 - frac) * 100}%`, "--l": shade(firstFree, localHour), "--r": shade(secondFree, nextHour) };
+        } else if (localHour < 7) cls.push("sleep");
         if (common) cls.push("common");
         if (isDay) cls.push("day");
         if (sl) {
@@ -862,10 +881,11 @@ function Row({ p, golden, inSlot, slot, nowCol, refNow, now, onEdit, onDown, onE
         return (
           <div key={i} className={cls.join(" ")} role="gridcell"
             data-day={isDay ? fmtWeekday(lang, new Date(now.getTime() + (i - refNow + 0.5) * 3600e3), p.tz) : undefined}
-            title={`${p.name}: ${fmtTime(localStart)} — ${isFree ? t("cellWork") : t("cellOff")}`}
-            onPointerDown={e => onDown(e, p, i, localHour, isFree)}
-            onPointerEnter={e => onEnter(e, p, i, localHour)}
-            onClick={() => onClick(p, i, localHour, isFree)}
+            style={style}
+            title={`${p.name}: ${fmtTime(localStart)}–${fmtTime(localStart + 1)} — ${fits ? t("cellWork") : partial ? t("cellPart") : t("cellOff")}`}
+            onPointerDown={e => onDown(e, p, i, hours, isFree)}
+            onPointerEnter={e => onEnter(e, p, i, hours)}
+            onClick={() => onClick(p, i, hours, isFree)}
           >
             {shown}
             {i === nowCol && <span className="nowline" style={{ left: `${(refNow % 1) * 100}%` }} />}

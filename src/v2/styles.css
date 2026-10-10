@@ -184,6 +184,8 @@ button { cursor: pointer; }
 }
 .cell.sleep { background: var(--sleep); }
 .cell.free { background: var(--free); color: var(--muted); }
+/* half-hour time zones: the cell covers parts of two local hours, each drawn by its own hour */
+.cell.part { background: linear-gradient(90deg, var(--l) var(--split), var(--r) var(--split)); color: var(--muted); }
 .cell.common { background: var(--accent-soft); color: var(--fg); }
 .cell.common::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--accent); }
 .cell.day { border-left: 2px solid var(--line-strong); }
