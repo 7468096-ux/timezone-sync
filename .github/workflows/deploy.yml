@@ -82,6 +82,7 @@ jobs:
         run: npx vite build --base=/ --outDir dist-cf
         env:
           VITE_SYNC_URL: /   # sync API on the same domain
+          VITE_DONATE_URL: ${{ vars.DONATE_URL }}
 
       - name: Deploy to Cloudflare (site + sync API)
         id: worker
@@ -140,7 +141,20 @@ jobs:
           [ "$code" = 409 ] || { echo "::error::older write was not rejected: HTTP $code"; exit 1; }
           curl -s -D - -o /dev/null -X OPTIONS -H "Origin: $ORIGIN" "$URL/v1/s/$id" | grep -qi "access-control-allow-origin: $ORIGIN" \
             || { echo "::error::CORS header missing for $ORIGIN"; exit 1; }
-          echo "Live check passed at $URL (site, read, write, stale-write rejection, CORS for $ORIGIN)" | tee -a "$GITHUB_STEP_SUMMARY"
+          code="$(curl -s -o /tmp/stats.json -w '%{http_code}' "$URL/v1/stats")"
+          [ "$code" = 200 ] && grep -q '"users"' /tmp/stats.json || { echo "::error::user counter: HTTP $code"; exit 1; }
+          if [ "${{ steps.worker.outputs.custom }}" = true ]; then
+            # protected version: http and www end up on https://SITE_DOMAIN, pages carry HSTS and CSP
+            loc="$(curl -s -o /dev/null -w '%{redirect_url}' "http://$SITE_DOMAIN/v1?x=1")"
+            [ "$loc" = "https://$SITE_DOMAIN/v1?x=1" ] || { echo "::error::http → https redirect goes to '$loc'"; exit 1; }
+            loc="$(curl -s -o /dev/null -w '%{redirect_url}' "https://www.$SITE_DOMAIN/")"
+            [ "$loc" = "https://$SITE_DOMAIN/" ] || { echo "::error::www redirect goes to '$loc'"; exit 1; }
+            hdrs="$(curl -sI "$URL/")"
+            for h in strict-transport-security content-security-policy x-content-type-options x-frame-options; do
+              grep -qi "^$h:" <<< "$hdrs" || { echo "::error::missing header $h"; exit 1; }
+            done
+          fi
+          echo "Live check passed at $URL (site, sync read/write/stale-write, CORS for $ORIGIN, user counter, https + security headers)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare GitHub Pages content
         env:
@@ -155,7 +169,7 @@ jobs:
             cp gh/index.html gh/v1.html; cp gh/index.html gh/404.html
             echo "GitHub Pages: redirect to https://$SITE_DOMAIN" >> "$GITHUB_STEP_SUMMARY"
           else
-            VITE_SYNC_URL="$SYNC_API" npx vite build
+            VITE_SYNC_URL="$SYNC_API" VITE_DONATE_URL="${{ vars.DONATE_URL }}" npx vite build
             cp -r dist/. gh/
             echo "GitHub Pages: full site${SYNC_API:+ (sync via $SYNC_API)}" >> "$GITHUB_STEP_SUMMARY"
           fi

@@ -132,3 +132,14 @@ MIT
   nothing is saved there yet. Shared links (`#v2.…`, `#sync.…`) are forwarded unchanged.
 - Before the switch, GitHub Pages keeps serving the full site and only the sync API runs on Cloudflare (workers.dev).
 - The domain name is set in `.github/workflows/deploy.yml` (`SITE_DOMAIN`) and `worker/wrangler.toml`.
+
+## Security, counter, donations
+
+- **HTTPS only** on the domain: the Worker sends `http://` and `www.` to `https://timezone-sync.com.co` in one 301, and every
+  page carries HSTS (1 year), a Content-Security-Policy limited to the site itself, Google Fonts and GoatCounter,
+  `X-Frame-Options: DENY`, `nosniff`, a strict referrer policy and a permissions policy. The deploy job checks all of it live.
+- **User counter** (footer, deliberately quiet): each browser makes a random id and is counted once (`POST /v1/hello`);
+  later visits read `GET /v1/stats`. No names, IP addresses or cookies are stored.
+- **"Buy me a coffee"** button with a colloquial phrase per language. It appears once a link is set: either
+  `DONATE_URL` in `src/lib/config.js` or the repository variable `DONATE_URL` (Settings → Secrets and variables →
+  Actions → Variables), which the deploy workflow passes to the build.

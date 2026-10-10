@@ -1,7 +1,10 @@
-// Timezone Sync on Cloudflare: the site (static assets) plus the device-sync API.
-//   GET /v1/s/:id  → { iv, data, updatedAt } | 404
-//   PUT /v1/s/:id  ← { iv, data, updatedAt } → { updatedAt } | 409 { updatedAt } when the stored copy is newer
+// Timezone Sync on Cloudflare: the site (static assets) plus the API.
+//   GET  /v1/s/:id  → { iv, data, updatedAt } | 404
+//   PUT  /v1/s/:id  ← { iv, data, updatedAt } → { updatedAt } | 409 { updatedAt } when the stored copy is newer
+//   POST /v1/hello  ← { id } (random per browser) → { users }   counts a browser once
+//   GET  /v1/stats  → { users }
 // :id is SHA-256(sync key) in hex; data is encrypted on the device. No listing endpoint exists.
+// On the real domain: http → https, HSTS and security headers on every page.
 
 const MAX_BODY = 64 * 1024;
 const DAY = 86_400_000;
@@ -12,31 +15,78 @@ function corsHeaders(req, env) {
   const origin = req.headers.get("Origin") || "";
   return {
     "Access-Control-Allow-Origin": allowed.includes(origin) ? origin : allowed[0] || "*",
-    "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
   };
 }
 
-const json = (body, status, headers) =>
-  new Response(JSON.stringify(body), { status, headers: { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+const json = (body, status, headers, cache = "no-store") =>
+  new Response(JSON.stringify(body), { status, headers: { ...headers, "Content-Type": "application/json", "Cache-Control": cache } });
+
+// Only what the page actually loads: its own files, Google Fonts, GoatCounter analytics.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' https://gc.zgo.at",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "img-src 'self' data: https://timezone-sync.goatcounter.com",
+  "connect-src 'self' https://timezone-sync.goatcounter.com",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+  "upgrade-insecure-requests",
+].join("; ");
+
+function withSecurityHeaders(res, https) {
+  const h = new Headers(res.headers);
+  if (https) h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  h.set("Content-Security-Policy", CSP);
+  h.set("X-Content-Type-Options", "nosniff");
+  h.set("X-Frame-Options", "DENY");
+  h.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
+async function usersTotal(env) {
+  const row = await env.DB.prepare("SELECT value FROM counters WHERE name = 'users'").first();
+  return row?.value ?? 0;
+}
 
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
-    // www → bare domain
-    if (env.CANONICAL_HOST && url.hostname === `www.${env.CANONICAL_HOST}`) {
-      url.hostname = env.CANONICAL_HOST;
+    const host = env.CANONICAL_HOST;
+    const onDomain = host && (url.hostname === host || url.hostname === `www.${host}`);
+    // http → https and www → bare domain, in one hop
+    if (onDomain && (url.protocol === "http:" || url.hostname !== host)) {
+      url.protocol = "https:";
+      url.hostname = host;
       return Response.redirect(url.toString(), 301);
     }
     // everything outside the API is the site
     if (!url.pathname.startsWith("/v1/")) {
-      return env.ASSETS ? env.ASSETS.fetch(req) : new Response("Not found", { status: 404 });
+      const res = env.ASSETS ? await env.ASSETS.fetch(req) : new Response("Not found", { status: 404 });
+      return withSecurityHeaders(res, url.protocol === "https:");
     }
 
     const cors = corsHeaders(req, env);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+
+    if (url.pathname === "/v1/stats" && req.method === "GET") {
+      return json({ users: await usersTotal(env) }, 200, cors, "public, max-age=300");
+    }
+    if (url.pathname === "/v1/hello" && req.method === "POST") {
+      let body;
+      try { body = JSON.parse((await req.text()).slice(0, 200)); } catch { return json({ error: "bad_json" }, 400, cors); }
+      if (typeof body?.id !== "string" || !/^[0-9a-f]{32}$/.test(body.id)) return json({ error: "bad_request" }, 400, cors);
+      const r = await env.DB.prepare("INSERT OR IGNORE INTO visitors (id, first_seen) VALUES (?, ?)").bind(body.id, Date.now()).run();
+      if (r.meta.changes) await env.DB.prepare("UPDATE counters SET value = value + 1 WHERE name = 'users'").run();
+      return json({ users: await usersTotal(env) }, 200, cors);
+    }
 
     const m = url.pathname.match(/^\/v1\/s\/([0-9a-f]{64})$/);
     if (!m) return json({ error: "not_found" }, 404, cors);
