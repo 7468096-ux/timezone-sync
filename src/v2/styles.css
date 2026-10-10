@@ -17,6 +17,7 @@
   --free: rgba(236, 232, 225, 0.13);
   --busy: transparent;
   --sleep: rgba(0, 0, 0, 0.35);
+  --night: rgba(255, 255, 255, 0.07);
   --ok: #5cc08d;
   --bad: #e5735f;
   --bad-soft: rgba(229, 115, 95, 0.12);
@@ -34,7 +35,7 @@
     --fg: #1d1b17; --muted: #5f5a52; --faint: #8f897f;
     --accent: #f0c050; --accent-ink: #9a6b0c; --on-accent: #17130a;
     --accent-soft: rgba(240, 180, 50, 0.28); --accent-line: rgba(180, 120, 10, 0.55);
-    --free: rgba(29, 27, 23, 0.11); --sleep: rgba(29, 27, 23, 0.05);
+    --free: rgba(29, 27, 23, 0.11); --sleep: rgba(29, 27, 23, 0.05); --night: rgba(29, 27, 23, 0.09);
     --ok: #217a4b; --bad: #b8432f; --bad-soft: rgba(184, 67, 47, 0.08);
     --shadow: 0 12px 40px rgba(20, 18, 14, 0.15);
     color-scheme: light;
@@ -46,7 +47,7 @@
   --fg: #1d1b17; --muted: #5f5a52; --faint: #8f897f;
   --accent: #f0c050; --accent-ink: #9a6b0c; --on-accent: #17130a;
   --accent-soft: rgba(240, 180, 50, 0.28); --accent-line: rgba(180, 120, 10, 0.55);
-  --free: rgba(29, 27, 23, 0.11); --sleep: rgba(29, 27, 23, 0.05);
+  --free: rgba(29, 27, 23, 0.11); --sleep: rgba(29, 27, 23, 0.05); --night: rgba(29, 27, 23, 0.09);
   --ok: #217a4b; --bad: #b8432f; --bad-soft: rgba(184, 67, 47, 0.08);
   --shadow: 0 12px 40px rgba(20, 18, 14, 0.15);
   color-scheme: light;
@@ -179,25 +180,33 @@ button { cursor: pointer; }
 .cell {
   height: 52px; border-top: 1px solid var(--line); border-left: 1px solid var(--line);
   background: var(--busy); position: relative; cursor: pointer;
-  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 5px;
+  display: grid; grid-template-columns: 1fr 1fr;
   font-family: var(--mono); font-size: 10px; color: var(--faint);
 }
-.cell.sleep { background: var(--sleep); }
-.cell.free { background: var(--free); color: var(--muted); }
-/* half-hour time zones: the cell covers parts of two local hours, each drawn by its own hour */
-.cell.part { background: linear-gradient(90deg, var(--l) var(--split), var(--r) var(--split)); color: var(--muted); }
-.cell.common { background: var(--accent-soft); color: var(--fg); }
-.cell.common::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--accent); }
+/* each cell = two half-hours of the reference time, drawn separately */
+.half { position: relative; min-width: 0; }
+.half.free { background: var(--free); }
+.half.common { background: var(--accent-soft); }
+.half.common::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--accent); }
+/* night (00–07 local, off work): faint hatching, so it never reads as "available" */
+.half.sleep { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--night) 5px 6px); }
+.half.sel { box-shadow: inset 0 0 0 999px rgba(127, 127, 127, 0.08); }
+.half.sel-l { box-shadow: inset 2px 0 0 var(--fg), inset 0 0 0 999px rgba(127, 127, 127, 0.08); }
+.half.sel-r { box-shadow: inset -2px 0 0 var(--fg), inset 0 0 0 999px rgba(127, 127, 127, 0.08); }
+.half.sel-l.sel-r { box-shadow: inset 2px 0 0 var(--fg), inset -2px 0 0 var(--fg), inset 0 0 0 999px rgba(127, 127, 127, 0.08); }
+/* half-hour time zones: halves are separate local half-hours — show the seam */
+.cell.split .half:first-child { border-right: 1px dashed var(--line-strong); }
+.cell-label {
+  position: absolute; left: 0; right: 0; bottom: 5px; text-align: center; pointer-events: none; z-index: 1;
+}
+.cell:has(.half.free) .cell-label { color: var(--muted); }
+.cell:has(.half.common) .cell-label { color: var(--fg); }
 .cell.day { border-left: 2px solid var(--line-strong); }
 .cell.day::before {
-  content: attr(data-day); position: absolute; top: 4px; left: 3px; font-size: 9px; letter-spacing: .04em; color: var(--faint); text-transform: uppercase;
+  content: attr(data-day); position: absolute; top: 4px; left: 3px; font-size: 9px; letter-spacing: .04em; color: var(--faint); text-transform: uppercase; z-index: 1; pointer-events: none;
 }
-.cell.sel { box-shadow: inset 0 0 0 999px rgba(127, 127, 127, 0.08); }
-.cell.sel-l { box-shadow: inset 2px 0 0 var(--fg), inset 0 0 0 999px rgba(127, 127, 127, 0.08); }
-.cell.sel-r { box-shadow: inset -2px 0 0 var(--fg), inset 0 0 0 999px rgba(127, 127, 127, 0.08); }
-.cell.sel-l.sel-r { box-shadow: inset 2px 0 0 var(--fg), inset -2px 0 0 var(--fg), inset 0 0 0 999px rgba(127, 127, 127, 0.08); }
-.edit-mode .cell:hover { outline: 1px solid var(--accent-line); outline-offset: -1px; }
-.view-mode .cell:hover { background-image: linear-gradient(rgba(127,127,127,.12), rgba(127,127,127,.12)); }
+.edit-mode .cell:not(.split):hover, .edit-mode .cell.split .half:hover { outline: 1px solid var(--accent-line); outline-offset: -1px; }
+.view-mode .half:hover { background-image: linear-gradient(rgba(127,127,127,.12), rgba(127,127,127,.12)); }
 .nowline { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); z-index: 2; pointer-events: none; box-shadow: 0 0 8px var(--accent-line); }
 
 .grid-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--faint); }
@@ -226,11 +235,20 @@ button { cursor: pointer; }
 .range-set { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 .range-set .select { max-width: 90px; }
 .hours { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+/* editor: each hour = two half-hour buttons (:00 and :30) under one label */
 .hour {
-  border: 1px solid var(--line-strong); border-radius: 6px; background: transparent;
-  height: 36px; font-family: var(--mono); font-size: 12px; color: var(--faint);
+  position: relative; display: grid; grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; height: 36px;
 }
-.hour.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--fg); }
+.hour-half { border: 0; background: transparent; padding: 0; }
+.hour-half + .hour-half { border-left: 1px dashed var(--line); }
+.hour-half.on { background: var(--accent-soft); }
+.hour-label {
+  position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+  font-family: var(--mono); font-size: 12px; color: var(--faint);
+}
+.hour:has(.on) .hour-label { color: var(--fg); }
+.hour:has(.hour-half.on + .hour-half.on) { border-color: var(--accent-line); }
 .hours-sum { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 .sheet-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .sheet-actions .spacer { flex: 1; }

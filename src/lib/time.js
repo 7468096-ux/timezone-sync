@@ -99,10 +99,10 @@ export function decodeHours(hex) {
 
 // Contiguous ranges of hours [start, end), treating 23→0 as contiguous.
 // A range that crosses midnight has end > 24.
-export function circularRanges(hours) {
-  const set = new Set(hours.filter(h => Number.isInteger(h) && h >= 0 && h < 24));
+export function circularRanges(hours, n = 24) {
+  const set = new Set(hours.filter(h => Number.isInteger(h) && h >= 0 && h < n));
   if (set.size === 0) return [];
-  if (set.size === 24) return [{ start: 0, end: 24 }];
+  if (set.size === n) return [{ start: 0, end: n }];
   const sorted = [...set].sort((a, b) => a - b);
   const ranges = [];
   let start = sorted[0], prev = sorted[0];
@@ -111,9 +111,9 @@ export function circularRanges(hours) {
     else { ranges.push({ start, end: prev + 1 }); start = sorted[i]; prev = sorted[i]; }
   }
   ranges.push({ start, end: prev + 1 });
-  if (ranges.length > 1 && ranges[0].start === 0 && ranges[ranges.length - 1].end === 24) {
+  if (ranges.length > 1 && ranges[0].start === 0 && ranges[ranges.length - 1].end === n) {
     const first = ranges.shift();
-    ranges[ranges.length - 1].end = 24 + first.end;
+    ranges[ranges.length - 1].end = n + first.end;
   }
   return ranges;
 }
@@ -180,4 +180,72 @@ export function findBestPartial(people, refOffset) {
 export function freeForSlot(hourSet, start, len, diff) {
   for (let k = 0; k < len; k++) if (!coversRefHour(hourSet, mod24(start + k), diff)) return false;
   return true;
+}
+
+/* ── half-hour model (used by the current interface; the hourly functions above serve v1) ──
+   A person's availability is a set of local half-hours ("slots") 0..47: slot k = [k/2, k/2 + 0.5).
+   Times are hours (may be fractional); a span is free only if every slot it touches is free. */
+export const mod48 = (k) => ((k % 48) + 48) % 48;
+export const slotsFromHours = (hours) => hours.flatMap(h => [2 * h, 2 * h + 1]);
+export function hoursFromSlots(slots) {
+  const s = new Set(slots);
+  return hoursRange(0, 24).filter(h => s.has(2 * h) && s.has(2 * h + 1));
+}
+
+const EPS = 1e-9;
+// local slots that the span [start, start + len) touches (start may be negative or ≥ 24)
+export function slotsInSpan(start, len) {
+  const out = [];
+  for (let k = Math.floor(start * 2 + EPS); k < Math.ceil((start + len) * 2 - EPS); k++) out.push(mod48(k));
+  return out;
+}
+export const coversSpan = (slotSet, start, len) => slotsInSpan(start, len).every(k => slotSet.has(k));
+
+// Is the person (local slots, offset difference diff) free for the whole reference span?
+export const freeForSpan = (slotSet, start, len, diff) => coversSpan(slotSet, start + diff, len);
+
+const toHours = (r) => ({ start: r.start / 2, end: r.end / 2 });
+
+// people: [{ offset, slotSet }]; → null | { ranges, best, allSlots } — ranges in reference hours,
+// allSlots = reference half-hours (0..47) where everyone is free
+export function findCommonSpan(people, refOffset) {
+  if (people.length === 0) return null;
+  const allSlots = [];
+  for (let k = 0; k < 48; k++) {
+    if (people.every(p => freeForSpan(p.slotSet, k / 2, 0.5, p.offset - refOffset))) allSlots.push(k);
+  }
+  if (allSlots.length === 0) return null;
+  const ranges = circularRanges(allSlots, 48).map(toHours);
+  const best = ranges.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
+  return { ranges, best, allSlots };
+}
+
+// No one-for-all time: where the most people are free, the same people for the whole range.
+export function findBestPartialSpan(people, refOffset) {
+  if (people.length === 0) return null;
+  const freeAt = Array.from({ length: 48 }, (_, k) =>
+    people.map(p => freeForSpan(p.slotSet, k / 2, 0.5, p.offset - refOffset)));
+  const counts = freeAt.map(f => f.filter(Boolean).length);
+  const count = Math.max(...counts);
+  if (count === 0) return null;
+  const sig = (k) => (counts[k] === count ? freeAt[k].map(Number).join("") : null);
+  const runs = [];
+  for (let k = 0; k < 48; k++) {
+    if (sig(k) === null) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.end === k && sig(last.start) === sig(k)) last.end = k + 1;
+    else runs.push({ start: k, end: k + 1 });
+  }
+  if (runs.length > 1 && runs[0].start === 0 && runs[runs.length - 1].end === 48 && sig(0) === sig(47)) {
+    runs[runs.length - 1].end = 48 + runs.shift().end;
+  }
+  const bestSlots = runs.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
+  const missing = freeAt[mod48(bestSlots.start)].flatMap((f, i) => (f ? [] : [i]));
+  return { count, total: people.length, best: toHours(bestSlots), missing };
+}
+
+export function describeSlots(slots) {
+  const ranges = circularRanges(slots, 48);
+  if (ranges.length === 0) return "—";
+  return ranges.map(r => `${fmtTime(r.start / 2)}–${fmtTime(r.end / 2)}`).join(", ");
 }

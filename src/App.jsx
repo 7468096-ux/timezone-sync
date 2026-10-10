@@ -177,7 +177,8 @@ export default function App() {
   const setHour = (pid, hour, value) => setPeople(prev => prev.map(p => {
     if (p.id !== pid || p.workHours.includes(hour) === value) return p;
     const workHours = value ? [...p.workHours, hour].sort((a, b) => a - b) : p.workHours.filter(h => h !== hour);
-    return { ...p, workHours };
+    // v1 edits whole hours only: drop the half-hour schedule so it is rebuilt from workHours
+    return { ...p, workHours, slots: undefined };
   }));
 
   const removePerson = (id) => {

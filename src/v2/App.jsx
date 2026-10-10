@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
 import {
-  getTimeInTZ, getOffset, fmtTime, fmtOffset, localHourAt, describeHours, findCommonWindow,
-  findBestPartial, freeForSlot, coversRefHour, hoursRange, mod24,
+  getTimeInTZ, getOffset, fmtTime, fmtOffset, localHourAt, hoursRange, mod24, mod48,
+  slotsFromHours, hoursFromSlots, slotsInSpan, coversSpan, freeForSpan, findCommonSpan, findBestPartialSpan, describeSlots,
 } from "../lib/time.js";
 import { DONATE_URL, MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig, sanitizePeople } from "../lib/config.js";
 import {
@@ -120,9 +120,10 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
   const [name, setName] = useState(initial.name);
   const [city, setCity] = useState(initial.city === cityFor(initial.tz) ? "" : initial.city);
   const [tz, setTz] = useState(initial.tz);
-  const [hours, setHours] = useState(() => new Set(initial.workHours));
-  const [from, setFrom] = useState(9);
-  const [to, setTo] = useState(18);
+  // local half-hours 0..47 (k = k/2 o'clock … +30 min)
+  const [slots, setSlots] = useState(() => new Set(initial.slots ?? slotsFromHours(initial.workHours)));
+  const [from, setFrom] = useState(18);
+  const [to, setTo] = useState(36);
   const paint = useRef(null);
   const lastType = useRef("mouse");
 
@@ -134,26 +135,41 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerup", stop); };
   }, [onClose]);
 
-  const setHour = (h, on) => setHours(prev => {
-    if (prev.has(h) === on) return prev;
+  const setSlot = (k, on) => setSlots(prev => {
+    if (prev.has(k) === on) return prev;
     const next = new Set(prev);
-    on ? next.add(h) : next.delete(h);
+    on ? next.add(k) : next.delete(k);
     return next;
   });
 
   const applyRange = () => {
     const list = [];
-    for (let h = from; h !== to; h = (h + 1) % 24) list.push(h); // wraps for night shifts
-    setHours(new Set(list.length ? list : hoursRange(0, 24)));
+    for (let k = from; k !== to; k = (k + 1) % 48) list.push(k); // wraps for night shifts
+    setSlots(new Set(list.length ? list : hoursRange(0, 48)));
   };
 
   const save = () => {
     const c = city.trim() || cityFor(tz);
-    onSave({ name: name.trim() || c, city: c, tz, emoji: flagFor(tz), workHours: [...hours].sort((a, b) => a - b) });
+    const list = [...slots].sort((a, b) => a - b);
+    onSave({ name: name.trim() || c, city: c, tz, emoji: flagFor(tz), slots: list, workHours: hoursFromSlots(list) });
   };
 
-  const sorted = [...hours].sort((a, b) => a - b);
+  const sorted = [...slots].sort((a, b) => a - b);
   const localNow = getTimeInTZ(tz, now);
+  const halfProps = (k) => ({
+    type: "button",
+    className: `hour-half${slots.has(k) ? " on" : ""}`,
+    "aria-pressed": slots.has(k),
+    "aria-label": `${fmtTime(k / 2)}–${fmtTime(k / 2 + 0.5)}`,
+    title: `${fmtTime(k / 2)}–${fmtTime(k / 2 + 0.5)}`,
+    onPointerDown: e => {
+      lastType.current = e.pointerType;
+      if (e.pointerType === "mouse" && e.button === 0) { e.preventDefault(); paint.current = !slots.has(k); setSlot(k, paint.current); }
+    },
+    onPointerEnter: e => { if (paint.current !== null && e.buttons & 1) setSlot(k, paint.current); },
+    // keyboard (detail 0) and touch toggle on click; mouse already toggled on pointerdown
+    onClick: e => { if (e.detail === 0 || lastType.current !== "mouse") setSlot(k, !slots.has(k)); },
+  });
 
   return (
     <div className="backdrop" onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -175,7 +191,7 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
         <div className="label">{t("hoursLabel")}
           <div className="presets">
             {PRESETS.map(([label, list]) => (
-              <button key={label} type="button" className="chip" onClick={() => setHours(new Set(list))}>{/^\d/.test(label) ? <span className="num">{label}</span> : t(label)}</button>
+              <button key={label} type="button" className="chip" onClick={() => setSlots(new Set(slotsFromHours(list)))}>{/^\d/.test(label) ? <span className="num">{label}</span> : t(label)}</button>
             ))}
           </div>
           <div className="range-set">
@@ -184,7 +200,7 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
               const [val, set] = p.slot === "from" ? [from, setFrom] : [to, setTo];
               return (
                 <select key={i} id={`ed-${p.slot}`} className="select" value={val} onChange={e => set(+e.target.value)}>
-                  {hoursRange(0, 24).map(h => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                  {hoursRange(0, 48).map(k => <option key={k} value={k}>{fmtTime(k / 2)}</option>)}
                 </select>
               );
             })}
@@ -192,18 +208,14 @@ function Editor({ initial, isNew, canDelete, now, onSave, onDelete, onClose }) {
           </div>
           <div className="hours" aria-label={t("hoursAria")}>
             {hoursRange(0, 24).map(h => (
-              <button key={h} type="button" className={`hour${hours.has(h) ? " on" : ""}`} aria-pressed={hours.has(h)}
-                onPointerDown={e => {
-                  lastType.current = e.pointerType;
-                  if (e.pointerType === "mouse" && e.button === 0) { e.preventDefault(); paint.current = !hours.has(h); setHour(h, paint.current); }
-                }}
-                onPointerEnter={e => { if (paint.current !== null && e.buttons & 1) setHour(h, paint.current); }}
-                // keyboard (detail 0) and touch toggle on click; mouse already toggled on pointerdown
-                onClick={e => { if (e.detail === 0 || lastType.current !== "mouse") setHour(h, !hours.has(h)); }}
-              >{pad(h)}</button>
+              <div key={h} className="hour">
+                <button {...halfProps(2 * h)} />
+                <button {...halfProps(2 * h + 1)} />
+                <span className="hour-label" aria-hidden="true">{pad(h)}</span>
+              </div>
             ))}
           </div>
-          <div className="hours-sum">{sorted.length ? `${describeHours(sorted)} · ${fmtUnit(lang, sorted.length, "hour")}` : t("noHours")}</div>
+          <div className="hours-sum">{sorted.length ? `${describeSlots(sorted)} · ${fmtDuration(lang, sorted.length * 30)}` : t("noHours")}</div>
         </div>
 
         <div className="sheet-actions">
@@ -477,11 +489,13 @@ export default function App() {
 
   const enriched = useMemo(() => people.map(p => {
     const offset = getOffset(p.tz, now);
-    return { ...p, offset, diff: offset - refOffset, local: getTimeInTZ(p.tz, now), hourSet: new Set(p.workHours) };
+    return { ...p, offset, diff: offset - refOffset, local: getTimeInTZ(p.tz, now), slotSet: new Set(p.slots ?? slotsFromHours(p.workHours)) };
   }), [people, now, refOffset]);
 
-  const golden = useMemo(() => findCommonWindow(enriched, refOffset), [enriched, refOffset]);
-  const partial = useMemo(() => (golden ? null : findBestPartial(enriched, refOffset)), [golden, enriched, refOffset]);
+  // common time is found to the half hour, so a shared half-hour lights up too
+  const golden = useMemo(() => findCommonSpan(enriched, refOffset), [enriched, refOffset]);
+  const goldenSet = useMemo(() => new Set(golden?.allSlots ?? []), [golden]);
+  const partial = useMemo(() => (golden ? null : findBestPartialSpan(enriched, refOffset)), [golden, enriched, refOffset]);
 
   const suggested = golden?.best || partial?.best || null;
   const slot = sel || (suggested && { start: suggested.start, len: Math.min(suggested.end - suggested.start, MAX_LEN) });
@@ -494,7 +508,7 @@ export default function App() {
     const startsIn = live ? -into : mod24(slot.start - refNow);
     const startAt = new Date(now.getTime() + startsIn * 3600e3);
     const rows = enriched.map(p => ({
-      p, ok: freeForSlot(p.hourSet, slot.start, slot.len, p.diff),
+      p, ok: freeForSpan(p.slotSet, slot.start, slot.len, p.diff),
       from: fmtTime(slot.start + p.diff), to: fmtTime(slot.start + slot.len + p.diff),
       day: fmtWeekday(lang, startAt, p.tz),
     }));
@@ -502,37 +516,42 @@ export default function App() {
   }, [slot?.start, slot?.len, refNow, now, enriched, lang]);
 
   const refDay = slotInfo && fmtWeekday(lang, slotInfo.startAt, refTZ);
-  const inSlot = (i) => slot && mod24(i - slot.start) < slot.len;
+  // selection in reference half-hours (k = 0..47)
+  const inHalf = (k) => !!slot && mod48(k - slot.start * 2) < slot.len * 2;
+  const inSlot = (i) => inHalf(2 * i) || inHalf(2 * i + 1);
 
   // keep the picked slot (or "now") in view on narrow screens
   useEffect(() => {
     const el = scroller.current;
     if (!el || el.scrollWidth <= el.clientWidth) return;
-    const col = slot ? slot.start : nowCol;
+    const col = slot ? Math.floor(slot.start) : nowCol;
     const cell = el.querySelector(`[data-col="${col}"]`);
     if (cell) el.scrollLeft = Math.max(0, cell.offsetLeft - el.clientWidth / 2);
   }, [slot?.start, refTZ]);
 
   /* actions */
-  // hours: the local hour(s) a cell covers — two for half-hour time zones
-  const setHour = (pid, hours, value) => setPeople(prev => prev.map(p => {
-    const list = [].concat(hours);
-    if (p.id !== pid || list.every(h => p.workHours.includes(h) === value)) return p;
-    const set = new Set(p.workHours);
-    for (const h of list) value ? set.add(h) : set.delete(h);
-    const workHours = [...set].sort((a, b) => a - b);
-    return { ...p, workHours };
+  // set the given local half-hours of one person on or off
+  const setSlots = (pid, list, value) => setPeople(prev => prev.map(p => {
+    if (p.id !== pid) return p;
+    const cur = p.slots ?? slotsFromHours(p.workHours);
+    if (list.every(k => cur.includes(k) === value)) return p;
+    const set = new Set(cur);
+    for (const k of list) value ? set.add(k) : set.delete(k);
+    const slots = [...set].sort((a, b) => a - b);
+    return { ...p, slots, workHours: hoursFromSlots(slots) };
   }));
 
+  // a and b are reference half-hours; the shortest way from a to b, forward or backward
   const pickRange = (a, b) => {
-    // shortest way from a to b going forward or backward
-    const fwd = mod24(b - a), back = mod24(a - b);
-    setSel(fwd <= back ? { start: a, len: Math.min(fwd + 1, MAX_LEN) } : { start: b, len: Math.min(back + 1, MAX_LEN) });
+    const fwd = mod48(b - a), back = mod48(a - b);
+    setSel(fwd <= back
+      ? { start: a / 2, len: Math.min((fwd + 1) / 2, MAX_LEN) }
+      : { start: b / 2, len: Math.min((back + 1) / 2, MAX_LEN) });
   };
 
   const changeLen = (d) => {
     if (!slot) return;
-    setSel({ start: slot.start, len: Math.max(1, Math.min(MAX_LEN, slot.len + d)) });
+    setSel({ start: slot.start, len: Math.max(0.5, Math.min(MAX_LEN, slot.len + d)) });
   };
 
   const removePerson = (id) => {
@@ -579,29 +598,29 @@ export default function App() {
   };
 
   /* grid cell handlers */
-  const cellDown = (e, p, i, hours, isFree) => {
+  const cellDown = (e, p, k, list, isFree) => {
     lastPointer.current = e.pointerType;
     if (e.pointerType !== "mouse" || e.button !== 0) return;
     e.preventDefault();
     if (mode === "edit") {
       drag.current = { kind: "paint", pid: p.id, value: !isFree };
-      setHour(p.id, hours, !isFree);
+      setSlots(p.id, list, !isFree);
     } else {
-      drag.current = { kind: "select", anchor: i };
-      setSel({ start: i, len: 1 });
+      drag.current = { kind: "select", anchor: k };
+      setSel({ start: k / 2, len: sel?.len || 1 });
     }
   };
-  const cellEnter = (e, p, i, hours) => {
+  const cellEnter = (e, p, k, list) => {
     const d = drag.current;
     if (!d) return;
     if (!(e.buttons & 1)) { drag.current = null; return; } // released outside the window
-    if (d.kind === "paint" && d.pid === p.id) setHour(p.id, hours, d.value);
-    if (d.kind === "select") pickRange(d.anchor, i);
+    if (d.kind === "paint" && d.pid === p.id) setSlots(p.id, list, d.value);
+    if (d.kind === "select" && k !== d.anchor) pickRange(d.anchor, k);
   };
-  const cellClick = (p, i, hours, isFree) => {
+  const cellClick = (p, k, list, isFree) => {
     if (lastPointer.current === "mouse") return; // handled on pointerdown
-    if (mode === "edit") setHour(p.id, hours, !isFree);
-    else setSel({ start: i, len: sel?.len || 1 });
+    if (mode === "edit") setSlots(p.id, list, !isFree);
+    else setSel({ start: k / 2, len: sel?.len || 1 });
   };
 
   const editing = editor && !editor.isNew ? people.find(p => p.id === editor.id) : null;
@@ -678,9 +697,9 @@ export default function App() {
             </div>
             <div className="slot-controls">
               <span className="dur" aria-label={t("duration")}>
-                <button className="icon-btn" onClick={() => changeLen(-1)} disabled={slot.len <= 1} aria-label={t("shorter")}>−</button>
-                <span className="dur-val">{fmtUnit(lang, slot.len, "hour")}</span>
-                <button className="icon-btn" onClick={() => changeLen(1)} disabled={slot.len >= MAX_LEN} aria-label={t("longer")}>+</button>
+                <button className="icon-btn" onClick={() => changeLen(-0.5)} disabled={slot.len <= 0.5} aria-label={t("shorter")}>−</button>
+                <span className="dur-val">{fmtDuration(lang, slot.len * 60)}</span>
+                <button className="icon-btn" onClick={() => changeLen(0.5)} disabled={slot.len >= MAX_LEN} aria-label={t("longer")}>+</button>
               </span>
               <button className={`btn${copied === "invite" ? " done" : " primary"}`} onClick={() => copy(inviteText(), "invite")}>
                 {copied === "invite" ? t("copied") : t("copyForChat")}
@@ -694,7 +713,7 @@ export default function App() {
                   return (
                     <button key={r.start} className={`chip${on ? " on" : ""}`}
                       onClick={() => setSel({ start: r.start, len: Math.min(r.end - r.start, MAX_LEN) })}>
-                      {fmtHour(r.start)}–{fmtHour(r.end)}
+                      {fmtTime(r.start)}–{fmtTime(r.end)}
                     </button>
                   );
                 })}
@@ -774,7 +793,7 @@ export default function App() {
             ))}
 
             {enriched.map(p => (
-              <Row key={p.id} p={p} golden={golden} inSlot={inSlot} slot={slot} nowCol={nowCol} refNow={refNow} now={now}
+              <Row key={p.id} p={p} goldenSet={goldenSet} inHalf={inHalf} slot={slot} nowCol={nowCol} refNow={refNow} now={now}
                 onEdit={() => setEditor({ id: p.id })}
                 onDown={cellDown} onEnter={cellEnter} onClick={cellClick} />
             ))}
@@ -788,7 +807,7 @@ export default function App() {
           <div className="legend">
             <span><i className="sw" style={{ background: "var(--free)" }} />{t("legendWork")}</span>
             <span><i className="sw" style={{ background: "var(--accent-soft)", borderColor: "var(--accent-line)" }} />{t("legendAll")}</span>
-            <span><i className="sw" style={{ background: "var(--sleep)" }} />{t("legendNight")}</span>
+            <span><i className="sw" style={{ background: "repeating-linear-gradient(135deg, transparent 0 3px, var(--night) 3px 4px)" }} />{t("legendNight")}</span>
             <span><i className="sw" style={{ background: "var(--accent)", width: 3, border: 0 }} />{t("legendNow")}</span>
           </div>
           <span>
@@ -834,15 +853,21 @@ export default function App() {
   );
 }
 
-function Row({ p, golden, inSlot, slot, nowCol, refNow, now, onEdit, onDown, onEnter, onClick }) {
+function Row({ p, goldenSet, inHalf, slot, nowCol, refNow, now, onEdit, onDown, onEnter, onClick }) {
   const { t, lang } = useI18n();
+  const slotCount = p.slotSet.size;
+  // With a half-hour offset (India seen from Berlin) each half of a cell is its own local half-hour,
+  // so halves are chosen separately; otherwise a click sets the whole hour.
+  const splitRow = !Number.isInteger(p.diff);
+  const selStart = slot ? mod48(slot.start * 2) : -1;
+  const selEnd = slot ? mod48(slot.start * 2 + slot.len * 2 - 1) : -1;
   return (
     <>
-      <button className="name" onClick={onEdit} title={`${p.city} · ${fmtOffset(p.offset)}\n${describeHours(p.workHours)}\n${t("editTip")}`}>
+      <button className="name" onClick={onEdit} title={`${p.city} · ${fmtOffset(p.offset)}\n${describeSlots([...p.slotSet])}\n${t("editTip")}`}>
         <span className="flag">{p.emoji}</span>
         <span className="name-text">
           <span className="name-main">{p.name}</span>
-          <span className="name-sub"><b>{fmtTime(p.local.decimal)}</b> · {fmtUnit(lang, p.workHours.length, "hour")}</span>
+          <span className="name-sub"><b>{fmtTime(p.local.decimal)}</b> · {fmtDuration(lang, slotCount * 30)}</span>
         </span>
       </button>
       {hoursRange(0, 24).map(i => {
@@ -850,44 +875,35 @@ function Row({ p, golden, inSlot, slot, nowCol, refNow, now, onEdit, onDown, onE
         const localHour = localHourAt(i, p.diff);
         const frac = localStart - Math.floor(localStart);
         const shown = frac ? fmtTime(localStart) : String(localHour);
-        // With a half-hour (or 45-min) offset the cell covers the end of one local hour and the start of
-        // the next, e.g. 19:30–20:30. Each part is drawn by its own hour, and the cell counts as free only
-        // when both are — exactly like the common-window calculation.
-        const nextHour = (localHour + 1) % 24;
-        const hours = frac ? [localHour, nextHour] : localHour;
-        const firstFree = p.hourSet.has(localHour);
-        const secondFree = frac ? p.hourSet.has(nextHour) : firstFree;
-        const fits = coversRefHour(p.hourSet, i, p.diff);
-        const isFree = fits;
-        const partial = firstFree !== secondFree;
-        const common = golden && fits && golden.allHours.includes(i);
         const isDay = localStart < 1; // local midnight falls in this cell
-        const sl = inSlot(i);
-        const cls = ["cell"];
-        const shade = (free, h) => (free ? "var(--free)" : h < 7 ? "var(--sleep)" : "var(--busy)");
-        let style;
-        if (fits) cls.push("free");
-        else if (partial) {
-          cls.push("part");
-          style = { "--split": `${(1 - frac) * 100}%`, "--l": shade(firstFree, localHour), "--r": shade(secondFree, nextHour) };
-        } else if (localHour < 7) cls.push("sleep");
-        if (common) cls.push("common");
-        if (isDay) cls.push("day");
-        if (sl) {
-          cls.push("sel");
-          if (i === slot.start) cls.push("sel-l");
-          if (mod24(i - slot.start) === slot.len - 1) cls.push("sel-r");
-        }
+        const wholeList = slotsInSpan(i + p.diff, 1);
+        const wholeFree = coversSpan(p.slotSet, i + p.diff, 1);
         return (
-          <div key={i} className={cls.join(" ")} role="gridcell"
-            data-day={isDay ? fmtWeekday(lang, new Date(now.getTime() + (i - refNow + 0.5) * 3600e3), p.tz) : undefined}
-            style={style}
-            title={`${p.name}: ${fmtTime(localStart)}–${fmtTime(localStart + 1)} — ${fits ? t("cellWork") : partial ? t("cellPart") : t("cellOff")}`}
-            onPointerDown={e => onDown(e, p, i, hours, isFree)}
-            onPointerEnter={e => onEnter(e, p, i, hours)}
-            onClick={() => onClick(p, i, hours, isFree)}
-          >
-            {shown}
+          <div key={i} className={`cell${isDay ? " day" : ""}${splitRow ? " split" : ""}`} role="gridcell"
+            data-day={isDay ? fmtWeekday(lang, new Date(now.getTime() + (i - refNow + 0.5) * 3600e3), p.tz) : undefined}>
+            {[0, 1].map(j => {
+              const k = 2 * i + j;
+              const ls = i + j / 2 + p.diff;
+              const free = coversSpan(p.slotSet, ls, 0.5);
+              const list = splitRow ? slotsInSpan(ls, 0.5) : wholeList;
+              const isFree = splitRow ? free : wholeFree;
+              const cls = ["half"];
+              if (free) cls.push("free"); else if (Math.floor(mod24(ls)) < 7) cls.push("sleep");
+              if (free && goldenSet.has(k)) cls.push("common");
+              if (inHalf(k)) {
+                cls.push("sel");
+                if (k === selStart) cls.push("sel-l");
+                if (k === selEnd) cls.push("sel-r");
+              }
+              return (
+                <div key={j} className={cls.join(" ")}
+                  title={`${p.name}: ${fmtTime(ls)}–${fmtTime(ls + 0.5)} — ${free ? t("cellWork") : t("cellOff")}`}
+                  onPointerDown={e => onDown(e, p, k, list, isFree)}
+                  onPointerEnter={e => onEnter(e, p, k, list)}
+                  onClick={() => onClick(p, k, list, isFree)} />
+              );
+            })}
+            <span className="cell-label" aria-hidden="true">{shown}</span>
             {i === nowCol && <span className="nowline" style={{ left: `${(refNow % 1) * 100}%` }} />}
           </div>
         );
