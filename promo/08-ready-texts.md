@@ -3,7 +3,7 @@
 Стиль взят из ваших писем: коротко, просто, дружелюбно, без канцелярита и маркетинговых слов; в английском —
 лёгкий восклицательный тон («haha», «Bravo!»), обычные дефисы вместо длинных тире, без эмодзи.
 
-Всё помеченное **[проверьте]** — мои догадки о вас, поправьте, если не так.
+Факты о себе подтверждены Александром.
 
 ---
 
@@ -23,7 +23,7 @@ Every Time Zone и timeanddate нажать «Suggest alternative» и выбр�
 Find a meeting time across time zones. Each person sets their own working hours and you see the best shared window right away.
 
 **Long description:**
-I made it because I work with clients in other countries **[проверьте]** and we always lost time on "what time is it for you?".
+I made it because I work with clients in other countries and we always lost time on "what time is it for you?".
 
 How it works: add people, set the hours when each person is really available (not only 9 to 5, gaps and half hours are ok). On top you see the best shared window and how soon it starts. "Copy for chat" gives one line with the time for every person, ready for Slack or Telegram.
 
@@ -46,7 +46,7 @@ How it works: add people, set the hours when each person is really available (no
 A site where everyone in a group marks their own free hours and it shows when you all overlap, across time zones
 
 **Первый комментарий:**
-Hi! I made this one. I work with clients in different countries **[проверьте]** and every call started with "wait, what time is it for you?". Clock sites show the time side by side, but I still had to find the overlap with my eyes.
+Hi! I made this one. I work with clients in different countries and every call started with "wait, what time is it for you?". Clock sites show the time side by side, but I still had to find the overlap with my eyes.
 
 So here you add people, mark when each one is really free, and it shows the best window. "Copy for chat" makes one line with everyone's local time.
 
@@ -63,7 +63,7 @@ No sign-up, no ads, free. Open source. I would be happy to hear what is confusin
 Made a small free tool to see when both of you are awake and free, maybe useful here
 
 **Body:**
-Hi everyone. I made a simple site for my work calls with people in other time zones **[проверьте]**, and then I thought it can be even more useful for couples.
+Hi everyone. I made a simple site for my work calls with people in other time zones, and then I thought it can be even more useful for couples.
 
 You add two people, mark the hours when each of you is free (for example after work and before sleep), and it shows the window when you both can call. Works with half-hour zones too, like India. You can send the setup to your partner as a link, they don't need to install anything or register.
 
@@ -79,7 +79,7 @@ It's free, no ads. If something is not convenient for your case, tell me, I will
 туда. Для dev.to почты нет — там это комментарий под статьёй.
 
 ### 4.1 Young Urban Project — «Best Apps for Managing Time Zones»
-**Куда:** контакт-страница сайта youngurbanproject.com **[адрес найти]**
+**Куда:** hello@youngurbanproject.com — ✅ отправлено 10.10.2026
 **Subject:** A free tool for your "Best Apps for Managing Time Zones" article
 
 Hi!
@@ -97,12 +97,12 @@ Of course no problem if it doesn't fit. Thank you!
 Aleksandr
 
 ### 4.2 EarthSims — «Remote work time zone tools»
-**Куда:** почта с https://earthsims.com/contact/ (там пишут, что принимают content suggestions) **[адрес взять со страницы]**
+**Куда:** hello@earthsims.com (основатель Jordan Stambaugh, обращение «Hi Jordan!») — ✅ отправлено 10.10.2026
 **Subject:** Content suggestion: free time zone tool for your remote work list
 
 Hi EarthSims team!
 
-I'm Aleksandr, a freelance art director living in Belgrade **[проверьте]**. I work with clients in other countries, so your list of time zone tools was useful for me.
+I'm Aleksandr, a freelance art director living in Belgrade. I work with clients in other countries, so your list of time zone tools was useful for me.
 
 I also made my own tool, maybe it's a good addition: Timezone Sync - https://timezone-sync.com.co
 You add people, set when each one is really available, and it shows the best window for a call. Free, no sign-up, works in 10 languages, good for nomads who change time zones often.
@@ -114,7 +114,7 @@ Thank you and have a nice day!
 Aleksandr
 
 ### 4.3 easy.jobs — «Best time zone converter tools for remote teams»
-**Куда:** контакт-форма easy.jobs **[адрес найти]**
+**Куда:** info@wpdeveloper.net (компания-владелец easy.jobs) — черновик в Gmail, ждёт отправки
 **Subject:** Suggestion for your time zone tools article
 
 Hello!
