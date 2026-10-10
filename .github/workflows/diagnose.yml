@@ -1,4 +1,5 @@
-# Manual check of how the public internet sees the site: DNS at several resolvers, delegation, HTTPS.
+# Manual check of how the public internet sees the site: DNS at several resolvers, delegation, HTTPS,
+# and whether what is served right now is exactly what main builds into.
 # Run from the Actions tab → "Diagnose domain" → Run workflow.
 name: Diagnose domain
 
@@ -45,5 +46,45 @@ jobs:
             curl -sS -o /dev/null -w "http://$d → %{http_code} → %{redirect_url}\n" "http://$d/" 2>&1 || true
             curl -sS -o /dev/null -w "https://www.$d → %{http_code} → %{redirect_url}\n" "https://www.$d/" 2>&1 || true
             echo | openssl s_client -connect "$d:443" -servername "$d" 2>/dev/null | openssl x509 -noout -subject -issuer -dates 2>/dev/null || echo "no certificate"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Is the live site exactly what main builds?
+        run: |
+          set -uo pipefail
+          VITE_SYNC_URL=/ npx vite build --base=/ --outDir expected >/dev/null
+          d="$SITE_DOMAIN"
+          {
+            echo "### Live https://$d vs a fresh build of main ($(git rev-parse --short HEAD))"
+            echo '```'
+            for page in / /v1; do
+              f=$([ "$page" = / ] && echo index.html || echo v1.html)
+              live="$(curl -s "https://$d$page")"
+              if [ "$live" = "$(cat expected/$f)" ]; then echo "$page: identical to build"; else
+                echo "$page: DIFFERENT"; diff <(cat expected/$f) <(printf '%s' "$live") | head -20; fi
+            done
+            for a in expected/assets/*; do
+              n="${a#expected/}"
+              if curl -s "https://$d/$n" | cmp -s - "$a"; then echo "$n: identical"; else echo "$n: DIFFERENT or missing"; fi
+            done
+            echo "-- response headers for /:"
+            curl -sI "https://$d/" | grep -iE '^(http|cache-control|age|cf-cache-status|etag|last-modified)' || true
+            echo '```'
+            echo "### Old address (GitHub Pages)"
+            echo '```'
+            for u in https://7468096-ux.github.io/timezone-sync/ https://7468096-ux.github.io/timezone-sync/v1.html; do
+              body="$(curl -s "$u")"
+              if grep -q '__DOMAIN__\|has moved' <<< "$body"; then kind="redirect page → $(grep -o "https://[a-z0-9.-]*\.com\.co" <<< "$body" | head -1)"
+              elif grep -q 'id="root"' <<< "$body"; then kind="OLD FULL SITE (not the redirect)"; else kind="unknown"; fi
+              echo "$u: $kind"
+              curl -sI "$u" | grep -iE '^(cache-control|age|x-cache|last-modified)' | sed 's/^/    /'
+            done
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
