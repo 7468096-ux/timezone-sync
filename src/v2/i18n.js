@@ -71,6 +71,7 @@ const S = {
     openOnSite: "Open on the website ↗",
     usersCount: "Users: {n}", usersTip: "Each browser is counted once, anonymously: no names, no IP addresses.",
     donate: "☕ Buy me a coffee",
+    cellPart: "partly working hours",
     language: "Language", you: "You", design: "Design", sales: "Sales", engineering: "Engineering",
   },
   zh: {
@@ -122,6 +123,7 @@ const S = {
     openOnSite: "在网站上打开 ↗",
     usersCount: "用户：{n}", usersTip: "每个浏览器只计一次，完全匿名：不记录姓名和 IP 地址。",
     donate: "🧋 请我喝杯奶茶",
+    cellPart: "部分在工作时间内",
     language: "语言", you: "你", design: "设计", sales: "销售", engineering: "工程",
   },
   hi: {
@@ -175,6 +177,7 @@ const S = {
     openOnSite: "वेबसाइट पर खोलें ↗",
     usersCount: "उपयोगकर्ता: {n}", usersTip: "हर ब्राउज़र एक बार गिना जाता है, गुमनाम रूप से: न नाम, न IP पता।",
     donate: "☕ एक कटिंग चाय हो जाए",
+    cellPart: "आंशिक रूप से काम के घंटे",
     language: "भाषा", you: "आप", design: "डिज़ाइन", sales: "सेल्स", engineering: "इंजीनियरिंग",
   },
   es: {
@@ -228,6 +231,7 @@ const S = {
     openOnSite: "Abrir en el sitio web ↗",
     usersCount: "Usuarios: {n}", usersTip: "Cada navegador cuenta una vez y de forma anónima: sin nombres ni direcciones IP.",
     donate: "☕ Invítame un cafecito",
+    cellPart: "en parte en horario laboral",
     language: "Idioma", you: "Tú", design: "Diseño", sales: "Ventas", engineering: "Ingeniería",
   },
   ar: {
@@ -279,6 +283,7 @@ const S = {
     openOnSite: "فتح على الموقع ↗",
     usersCount: "المستخدمون: {n}", usersTip: "يُحتسب كل متصفح مرة واحدة وبشكل مجهول: بلا أسماء ولا عناوين IP.",
     donate: "☕ اعزمني على فنجان قهوة",
+    cellPart: "جزئيًا ضمن ساعات العمل",
     language: "اللغة", you: "أنت", design: "التصميم", sales: "المبيعات", engineering: "الهندسة",
   },
   fr: {
@@ -332,6 +337,7 @@ const S = {
     openOnSite: "Ouvrir sur le site ↗",
     usersCount: "Utilisateurs : {n}", usersTip: "Chaque navigateur est compté une fois, anonymement : ni nom, ni adresse IP.",
     donate: "☕ Offre-moi un p'tit noir",
+    cellPart: "en partie pendant les heures de travail",
     language: "Langue", you: "Vous", design: "Design", sales: "Ventes", engineering: "Ingénierie",
   },
   bn: {
@@ -385,6 +391,7 @@ const S = {
     openOnSite: "ওয়েবসাইটে খুলুন ↗",
     usersCount: "ব্যবহারকারী: {n}", usersTip: "প্রতিটি ব্রাউজার একবারই গোনা হয়, নাম বা IP ঠিকানা ছাড়াই।",
     donate: "☕ এক ভাঁড় চা খাওয়াও",
+    cellPart: "আংশিক কাজের সময়",
     language: "ভাষা", you: "আপনি", design: "ডিজাইন", sales: "সেলস", engineering: "ইঞ্জিনিয়ারিং",
   },
   pt: {
@@ -438,6 +445,7 @@ const S = {
     openOnSite: "Abrir no site ↗",
     usersCount: "Usuários: {n}", usersTip: "Cada navegador conta uma vez, de forma anônima: sem nomes nem endereços IP.",
     donate: "☕ Me paga um cafezinho",
+    cellPart: "em parte no horário de trabalho",
     language: "Idioma", you: "Você", design: "Design", sales: "Vendas", engineering: "Engenharia",
   },
   ru: {
@@ -491,6 +499,7 @@ const S = {
     openOnSite: "Открыть на сайте ↗",
     usersCount: "Пользователей: {n}", usersTip: "Каждый браузер считается один раз и анонимно: без имён и IP-адресов.",
     donate: "☕ На кофеёк",
+    cellPart: "частично в рабочие часы",
     language: "Язык", you: "Ты", design: "Дизайн", sales: "Продажи", engineering: "Разработка",
   },
   id: {
@@ -544,6 +553,7 @@ const S = {
     openOnSite: "Buka di situs web ↗",
     usersCount: "Pengguna: {n}", usersTip: "Setiap browser dihitung sekali secara anonim: tanpa nama dan alamat IP.",
     donate: "☕ Traktir kopi dong",
+    cellPart: "sebagian jam kerja",
     language: "Bahasa", you: "Anda", design: "Desain", sales: "Penjualan", engineering: "Teknik",
   },
 };
