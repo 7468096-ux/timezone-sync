@@ -150,3 +150,11 @@ Schedules are stored as local half-hours (`slots`, 0–47; `workHours` keeps the
 The common window is found to the half hour, so a shared 30 minutes lights up on its own. For people whose time zone is
 offset by half an hour from yours (India seen from Europe), each half of a grid cell is a separate local half-hour and is
 toggled on its own; for everyone else a click sets the whole hour. Meeting length changes in 30-minute steps.
+
+## idea-to-app skill
+
+`tools/idea-to-app/` packs the whole process behind this app into a Claude skill: write an idea, get an
+app at this level (tested logic, answer-first UI, 10 languages, sharing, device sync, counter, coffee
+button, Claude artifact, Cloudflare site with live-checked deploys). Install: upload
+`tools/idea-to-app.zip` in Claude → Settings → Capabilities → Skills, or copy the folder to
+`~/.claude/skills/`. Details in `tools/idea-to-app/README.md`.

@@ -1,0 +1,6 @@
+node_modules
+dist
+dist-cf
+dist-artifact
+.wrangler
+verify-out

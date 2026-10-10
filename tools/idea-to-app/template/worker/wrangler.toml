@@ -1,0 +1,27 @@
+# __APP_NAME__ on Cloudflare: serves the site (static assets) and the API (/v1/*).
+# Deployed by .github/workflows/deploy.yml, which fills in __D1_ID__ and, once the domain's zone is
+# active in this Cloudflare account, the custom-domain routes at __ROUTES__.
+name = "__APP_SLUG__"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+# __ROUTES__
+
+[vars]
+ALLOWED_ORIGINS = "https://__DOMAIN__,http://localhost:5173,http://localhost:4173"
+CANONICAL_HOST = "__DOMAIN__"
+
+# the built site (vite build --outDir dist-cf); the Worker runs first so it can route /v1/*
+[assets]
+directory = "../dist-cf"
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "__APP_SLUG__"
+database_id = "__D1_ID__"
+
+# daily cleanup of sync copies nobody has touched for a year
+[triggers]
+crons = ["17 3 * * *"]
