@@ -22,6 +22,7 @@ const START_LANG = detectLang();
 const exampleTeam = (lang) => sanitizePeople(makeDefaults(lang, detectTZ()));
 const INITIAL = loadInitial(() => exampleTeam(START_LANG));
 const MAX_LEN = 12;
+const SITE_URL = "https://timezone-sync.com.co";
 
 const I18n = createContext({ lang: "en", t: makeT("en") });
 const useI18n = () => useContext(I18n);
@@ -731,7 +732,13 @@ export default function App() {
                 {syncKey ? (syncStatus.state === "offline" ? "…" : t("syncOn")) : t("syncBtn")}
               </button>
             )}
-            {EMBED && <button className="btn small" onClick={() => setImportText("")}>{t("pasteCode")}</button>}
+            {EMBED && (
+              // the Claude page can't share its storage with the site: hand the setup over in the link
+              <a className="btn small primary" href={`${SITE_URL}/#${encodeConfig(people)}`} target="_blank" rel="noopener noreferrer">
+                {t("openOnSite")}
+              </a>
+            )}
+            <button className="btn small" onClick={() => setImportText("")}>{t("pasteCode")}</button>
             <button className={`btn small${copied === "share" ? " done" : ""}`} onClick={share}>
               {copied === "share" ? t("copied") : EMBED ? t("copyCode") : t("shareLink")}
             </button>

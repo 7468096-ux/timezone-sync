@@ -68,6 +68,7 @@ const S = {
     syncAskText: "The setup on this device will be replaced by the one from your other device.",
     syncNotFound: "Nothing found for this code. Check that sync is on on your other device.",
     close: "Close",
+    openOnSite: "Open on the website ↗",
     language: "Language", you: "You", design: "Design", sales: "Sales", engineering: "Engineering",
   },
   zh: {
@@ -116,6 +117,7 @@ const S = {
     syncAskText: "此设备上的配置将被另一台设备的配置替换。",
     syncNotFound: "找不到此同步码对应的数据。请确认另一台设备已开启同步。",
     close: "关闭",
+    openOnSite: "在网站上打开 ↗",
     language: "语言", you: "你", design: "设计", sales: "销售", engineering: "工程",
   },
   hi: {
@@ -166,6 +168,7 @@ const S = {
     syncAskText: "इस डिवाइस का सेटअप आपके दूसरे डिवाइस के सेटअप से बदल दिया जाएगा।",
     syncNotFound: "इस कोड के लिए कुछ नहीं मिला। देखें कि दूसरे डिवाइस पर सिंक चालू है।",
     close: "बंद करें",
+    openOnSite: "वेबसाइट पर खोलें ↗",
     language: "भाषा", you: "आप", design: "डिज़ाइन", sales: "सेल्स", engineering: "इंजीनियरिंग",
   },
   es: {
@@ -216,6 +219,7 @@ const S = {
     syncAskText: "La configuración de este dispositivo se sustituirá por la de tu otro dispositivo.",
     syncNotFound: "No hay nada para este código. Comprueba que la sincronización está activada en el otro dispositivo.",
     close: "Cerrar",
+    openOnSite: "Abrir en el sitio web ↗",
     language: "Idioma", you: "Tú", design: "Diseño", sales: "Ventas", engineering: "Ingeniería",
   },
   ar: {
@@ -264,6 +268,7 @@ const S = {
     syncAskText: "سيُستبدل الإعداد على هذا الجهاز بالإعداد من جهازك الآخر.",
     syncNotFound: "لا يوجد شيء لهذا الرمز. تأكد من تشغيل المزامنة على جهازك الآخر.",
     close: "إغلاق",
+    openOnSite: "فتح على الموقع ↗",
     language: "اللغة", you: "أنت", design: "التصميم", sales: "المبيعات", engineering: "الهندسة",
   },
   fr: {
@@ -314,6 +319,7 @@ const S = {
     syncAskText: "La configuration de cet appareil sera remplacée par celle de votre autre appareil.",
     syncNotFound: "Rien trouvé pour ce code. Vérifiez que la synchronisation est activée sur l’autre appareil.",
     close: "Fermer",
+    openOnSite: "Ouvrir sur le site ↗",
     language: "Langue", you: "Vous", design: "Design", sales: "Ventes", engineering: "Ingénierie",
   },
   bn: {
@@ -364,6 +370,7 @@ const S = {
     syncAskText: "এই ডিভাইসের সেটআপ আপনার অন্য ডিভাইসের সেটআপ দিয়ে বদলে যাবে।",
     syncNotFound: "এই কোডে কিছু পাওয়া যায়নি। অন্য ডিভাইসে সিঙ্ক চালু আছে কি না দেখুন।",
     close: "বন্ধ করুন",
+    openOnSite: "ওয়েবসাইটে খুলুন ↗",
     language: "ভাষা", you: "আপনি", design: "ডিজাইন", sales: "সেলস", engineering: "ইঞ্জিনিয়ারিং",
   },
   pt: {
@@ -414,6 +421,7 @@ const S = {
     syncAskText: "A configuração deste dispositivo será substituída pela do seu outro dispositivo.",
     syncNotFound: "Nada encontrado para este código. Verifique se a sincronização está ativada no outro dispositivo.",
     close: "Fechar",
+    openOnSite: "Abrir no site ↗",
     language: "Idioma", you: "Você", design: "Design", sales: "Vendas", engineering: "Engenharia",
   },
   ru: {
@@ -464,6 +472,7 @@ const S = {
     syncAskText: "Данные на этом устройстве заменятся данными с другого устройства.",
     syncNotFound: "По этому коду ничего не найдено. Проверь, что на другом устройстве синхронизация включена.",
     close: "Закрыть",
+    openOnSite: "Открыть на сайте ↗",
     language: "Язык", you: "Ты", design: "Дизайн", sales: "Продажи", engineering: "Разработка",
   },
   id: {
@@ -514,6 +523,7 @@ const S = {
     syncAskText: "Pengaturan di perangkat ini akan diganti dengan pengaturan dari perangkat lain.",
     syncNotFound: "Tidak ada data untuk kode ini. Pastikan sinkronisasi aktif di perangkat lain.",
     close: "Tutup",
+    openOnSite: "Buka di situs web ↗",
     language: "Bahasa", you: "Anda", design: "Desain", sales: "Penjualan", engineering: "Teknik",
   },
 };
