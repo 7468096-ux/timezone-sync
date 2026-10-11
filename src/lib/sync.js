@@ -1,6 +1,7 @@
 /* ── device sync: one secret key per person, shared by their devices ──
    The key never leaves the devices in clear: the server sees id = SHA-256("tz-sync:id:" + key)
-   and AES-GCM ciphertext encrypted with SHA-256("tz-sync:enc:" + key). */
+   and AES-GCM ciphertext encrypted with SHA-256("tz-sync:enc:" + key). Writes also carry
+   auth = SHA-256("tz-sync:auth:" + key), so the id alone (e.g. from server logs) can't overwrite the data. */
 
 // VITE_SYNC_URL: "" → sync off, "/" → API on the site's own domain, "https://…" → separate service
 const RAW_SYNC_URL = import.meta.env?.VITE_SYNC_URL || "";
@@ -39,7 +40,8 @@ async function derive(key) {
   const id = hex(await crypto.subtle.digest("SHA-256", enc.encode(`tz-sync:id:${key}`)));
   const raw = await crypto.subtle.digest("SHA-256", enc.encode(`tz-sync:enc:${key}`));
   const aes = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
-  return { id, aes };
+  const auth = hex(await crypto.subtle.digest("SHA-256", enc.encode(`tz-sync:auth:${key}`)));
+  return { id, aes, auth };
 }
 
 export async function encryptPayload(key, payload) {
@@ -68,8 +70,8 @@ export async function pull(key, base = SYNC_URL) {
 
 // → { ok: true } | { ok: false, stale: true, updatedAt }
 export async function push(key, payload, updatedAt, base = SYNC_URL) {
-  const { id } = await derive(key);
-  const body = { ...(await encryptPayload(key, payload)), updatedAt };
+  const { id, auth } = await derive(key);
+  const body = { ...(await encryptPayload(key, payload)), updatedAt, auth };
   const res = await fetch(`${base}/v1/s/${id}`, {
     method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });

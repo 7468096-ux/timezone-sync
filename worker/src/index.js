@@ -1,14 +1,29 @@
 // Timezone Sync on Cloudflare: the site (static assets) plus the API.
 //   GET  /v1/s/:id  → { iv, data, updatedAt } | 404
-//   PUT  /v1/s/:id  ← { iv, data, updatedAt } → { updatedAt } | 409 { updatedAt } when the stored copy is newer
+//   PUT  /v1/s/:id  ← { iv, data, updatedAt, auth } → { updatedAt } | 409 { updatedAt } when the stored copy is newer
+//                     | 403 when auth doesn't match the one the first write set
 //   POST /v1/hello  ← { id } (random per browser) → { users }   counts a browser once
 //   GET  /v1/stats  → { users }
 // :id is SHA-256(sync key) in hex; data is encrypted on the device. No listing endpoint exists.
+// Knowing :id is enough to read the ciphertext but not to write: writes need auth (another hash of the key),
+// stored only as SHA-256(auth), so the id seen in logs can't be used to wipe or lock someone's data.
+// Writes and the counter are rate-limited per IP (the RATE_LIMIT binding, when present).
 // On the real domain: http → https, HSTS and security headers on every page.
 
 const MAX_BODY = 64 * 1024;
 const DAY = 86_400_000;
 const EXPIRE_AFTER = 365 * DAY;
+
+const sha256hex = async (s) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))]
+    .map(b => b.toString(16).padStart(2, "0")).join("");
+
+// true when this IP may make another write; without the binding (tests, local dev) always true
+async function allowed(req, env) {
+  if (!env.RATE_LIMIT) return true;
+  const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+  try { return (await env.RATE_LIMIT.limit({ key: ip })).success; } catch { return true; }
+}
 
 function corsHeaders(req, env) {
   const allowed = (env.ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
@@ -27,7 +42,10 @@ let appVersion = "dev";
 
 const json = (body, status, headers, cache = "no-store") =>
   new Response(JSON.stringify(body), {
-    status, headers: { ...headers, "Content-Type": "application/json", "Cache-Control": cache, "X-App-Version": appVersion },
+    status, headers: {
+      ...headers, "Content-Type": "application/json", "Cache-Control": cache,
+      "X-Content-Type-Options": "nosniff", "X-App-Version": appVersion,
+    },
   });
 
 // Only what the page actually loads: its own files, Google Fonts, GoatCounter analytics.
@@ -87,6 +105,7 @@ export default {
       return json({ users: await usersTotal(env) }, 200, cors, "public, max-age=300");
     }
     if (url.pathname === "/v1/hello" && req.method === "POST") {
+      if (!(await allowed(req, env))) return json({ error: "rate_limited" }, 429, cors);
       let body;
       try { body = JSON.parse((await req.text()).slice(0, 200)); } catch { return json({ error: "bad_json" }, 400, cors); }
       if (typeof body?.id !== "string" || !/^[0-9a-f]{32}$/.test(body.id)) return json({ error: "bad_request" }, 400, cors);
@@ -106,16 +125,25 @@ export default {
     }
 
     if (req.method === "PUT") {
+      if (Number(req.headers.get("Content-Length")) > MAX_BODY) return json({ error: "too_large" }, 413, cors);
+      if (!(await allowed(req, env))) return json({ error: "rate_limited" }, 429, cors);
       const text = await req.text();
       if (text.length > MAX_BODY) return json({ error: "too_large" }, 413, cors);
       let body;
       try { body = JSON.parse(text); } catch { return json({ error: "bad_json" }, 400, cors); }
-      const { iv, data, updatedAt } = body || {};
+      const { iv, data, updatedAt, auth } = body || {};
       const now = Date.now();
-      if (typeof iv !== "string" || iv.length > 32 || typeof data !== "string" || !data
+      if (typeof iv !== "string" || !/^[A-Za-z0-9+/]{1,32}={0,2}$/.test(iv)
+        || typeof data !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
+        || typeof auth !== "string" || !/^[0-9a-f]{64}$/.test(auth)
         || !Number.isSafeInteger(updatedAt) || updatedAt <= 0 || updatedAt > now + DAY) {
         return json({ error: "bad_request" }, 400, cors);
       }
+      // the first write for an id sets its write token; later writes must bring the same one
+      const authHash = await sha256hex(auth);
+      await env.DB.prepare("INSERT OR IGNORE INTO sync_auth (id, auth) VALUES (?, ?)").bind(id, authHash).run();
+      const owner = await env.DB.prepare("SELECT auth FROM sync_auth WHERE id = ?").bind(id).first();
+      if (owner?.auth !== authHash) return json({ error: "forbidden" }, 403, cors);
       // last write wins: only replace an older copy
       const res = await env.DB.prepare(
         `INSERT INTO sync (id, iv, data, updated_at, written_at) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -135,5 +163,6 @@ export default {
 
   async scheduled(_event, env) {
     await env.DB.prepare("DELETE FROM sync WHERE written_at < ?").bind(Date.now() - EXPIRE_AFTER).run();
+    await env.DB.prepare("DELETE FROM sync_auth WHERE id NOT IN (SELECT id FROM sync)").run();
   },
 };

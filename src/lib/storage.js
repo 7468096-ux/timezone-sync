@@ -24,6 +24,8 @@ export function savePeople(people) {
    The old site (github.io) can't share localStorage with the new domain, so it forwards its data once
    as "#migrate.<base64url JSON {p: people, r: refTZ, l: lang, k: sync key, m: sync meta}>".
    It is applied only if this browser has nothing saved here yet, so it never overwrites newer data.
+   The sync key is never adopted silently: anyone can craft such a link, and a planted key would send
+   this device's later edits to the link's author. It becomes "#sync.<key>", which asks before connecting.
    Must run before anything reads localStorage (call at the top of the app module). */
 export function consumeMigration() {
   const hash = window.location.hash.slice(1);
@@ -39,8 +41,7 @@ export function consumeMigration() {
     if (typeof d.r === "string" && isValidTZ(normalizeTZ(d.r))) localStorage.setItem(LS_REF, normalizeTZ(d.r));
     if (typeof d.l === "string" && /^[a-z]{2}$/.test(d.l)) localStorage.setItem("tz-sync-lang", d.l);
     if (typeof d.k === "string" && /^[A-Za-z0-9_-]{22}$/.test(d.k)) {
-      localStorage.setItem("tz-sync-device-key", d.k);
-      if (d.m && typeof d.m === "object") localStorage.setItem("tz-sync-device-meta", JSON.stringify(d.m));
+      try { history.replaceState(null, "", `${window.location.pathname}${window.location.search}#sync.${d.k}`); } catch {}
     }
     return true;
   } catch { return false; }

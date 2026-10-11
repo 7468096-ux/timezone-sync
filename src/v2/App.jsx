@@ -383,6 +383,10 @@ export default function App() {
       const { localAt, remoteAt } = meta.current;
       const people = sanitizePeople(r.payload?.people);
       if (r.updatedAt > remoteAt && (joining || r.updatedAt > localAt) && people) {
+        // joining replaces this device's setup: keep it restorable, like opening a shared link
+        const mine = peopleRef.current;
+        const backup = joining && !sameConfig(mine, people) ? mine : null;
+        if (backup) { rememberBackup(backup); setNotice({ kind: "link", backup }); }
         fromRemote.current = true;
         setPeople(people);
         setSel(null);
