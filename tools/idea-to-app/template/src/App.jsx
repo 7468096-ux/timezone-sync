@@ -102,6 +102,7 @@ function SyncSheet({ sync, onClose }) {
   const { t, lang } = useI18n();
   const [code, setCode] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [rotating, setRotating] = useState(false); // asking to confirm "change code"
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -125,6 +126,7 @@ function SyncSheet({ sync, onClose }) {
           <>
             <p className="sheet-text">{t("syncIntro")}</p>
             {status.state === "notfound" && <div className="notice bad" role="alert"><span>{t("syncNotFound")}</span></div>}
+            {status.state === "revoked" && <div className="notice bad" role="alert"><span>{t("syncRevoked")}</span></div>}
             {code === null ? (
               <div className="sheet-actions">
                 <button className="btn primary" onClick={sync.enable}>{t("syncEnable")}</button>
@@ -151,10 +153,18 @@ function SyncSheet({ sync, onClose }) {
               </div>
             </div>
             <div className={`sync-status ${status.state}`} role="status">{statusText}</div>
+            {rotating && (
+              <div className="notice" role="alertdialog" aria-labelledby="sync-rotate">
+                <span id="sync-rotate">{t("syncRotateText")}</span>
+                <button className="btn small primary" onClick={() => { setRotating(false); sync.rotate(); }}>{t("syncRotate")}</button>
+                <button className="btn small ghost" onClick={() => setRotating(false)}>{t("cancel")}</button>
+              </div>
+            )}
           </>
         )}
         <div className="sheet-actions">
           {syncKey && <button className="btn ghost danger" onClick={sync.disconnect}>{t("syncDisconnect")}</button>}
+          {syncKey && !rotating && <button className="btn ghost" onClick={() => setRotating(true)}>{t("syncRotate")}</button>}
           <span className="spacer" />
           <button className="btn ghost" onClick={onClose}>{t("close")}</button>
         </div>
@@ -177,7 +187,13 @@ export default function App() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [users, setUsers] = useState(null);
   const [draft, setDraft] = useState("");            // DEMO
-  const sync = useDeviceSync(state, setState, sanitizeState);
+  // joining another device's sync replaces this device's data: keep it restorable, like a shared link
+  const sync = useDeviceSync(state, setState, sanitizeState, (mine) => {
+    save("backup", mine);
+    setNotice({ kind: "loaded", backup: true, from: "link" });
+  });
+  // another device changed the code: show why this one stopped syncing
+  useEffect(() => { if (sync.status.state === "revoked") setSyncOpen(true); }, [sync.status.state]);
 
   useEffect(() => { applyDocumentLang(lang); }, [lang]);
   useEffect(() => { save("state", state); }, [state]);

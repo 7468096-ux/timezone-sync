@@ -14,6 +14,7 @@ import {
 import { fetchUsers } from "../lib/counter.js";
 import {
   SYNC_ENABLED, newKey, parseKey, keyLink, pull as syncPull, push as syncPush, loadKey, saveKey, loadMeta, saveMeta,
+  revoke as syncRevoke, pendingRevoke, savePendingRevoke,
 } from "../lib/sync.js";
 import qrcode from "qrcode-generator";
 import "./styles.css";
@@ -242,9 +243,10 @@ function QR({ text }) {
   return <div className="qr" role="img" aria-label="QR" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
-function SyncSheet({ syncKey, status, onEnable, onJoin, onDisconnect, onClose }) {
+function SyncSheet({ syncKey, status, onEnable, onJoin, onDisconnect, onRotate, onClose }) {
   const { t, lang } = useI18n();
   const [code, setCode] = useState(null); // null = field hidden
+  const [rotating, setRotating] = useState(false); // asking to confirm "change code"
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -268,6 +270,7 @@ function SyncSheet({ syncKey, status, onEnable, onJoin, onDisconnect, onClose })
           <>
             <p className="sheet-text">{t("syncIntro")}</p>
             {status.state === "notfound" && <div className="notice bad" role="alert"><span>{t("syncNotFound")}</span></div>}
+            {status.state === "revoked" && <div className="notice bad" role="alert"><span>{t("syncRevoked")}</span></div>}
             {code === null ? (
               <div className="sheet-actions">
                 <button className="btn primary" onClick={onEnable}>{t("syncEnable")}</button>
@@ -294,10 +297,18 @@ function SyncSheet({ syncKey, status, onEnable, onJoin, onDisconnect, onClose })
               </div>
             </div>
             <div className={`sync-status ${status.state}`} role="status">{statusText}</div>
+            {rotating && (
+              <div className="notice" role="alertdialog" aria-labelledby="sync-rotate">
+                <span id="sync-rotate">{t("syncRotateText")}</span>
+                <button className="btn small primary" onClick={() => { setRotating(false); onRotate(); }}>{t("syncRotate")}</button>
+                <button className="btn small ghost" onClick={() => setRotating(false)}>{t("cancel")}</button>
+              </div>
+            )}
           </>
         )}
         <div className="sheet-actions">
           {syncKey && <button className="btn ghost danger" onClick={onDisconnect}>{t("syncDisconnect")}</button>}
+          {syncKey && !rotating && <button className="btn ghost" onClick={() => setRotating(true)}>{t("syncRotate")}</button>}
           <span className="spacer" />
           <button className="btn ghost" onClick={onClose}>{t("close")}</button>
         </div>
@@ -362,6 +373,7 @@ export default function App() {
       const at = meta.current.localAt || Date.now();
       const r = await syncPush(key, { people: peopleRef.current }, at);
       if (r.ok) { writeMeta({ localAt: at, remoteAt: at, syncedAt: Date.now() }); setSyncStatus({ state: "ok", at: Date.now() }); }
+      else if (r.revoked) revokedElsewhere();
       else await doPull(); // the other device was newer
     } catch { setSyncStatus(s => ({ ...s, state: "offline" })); }
   };
@@ -374,6 +386,7 @@ export default function App() {
     setSyncStatus(s => ({ ...s, state: "busy" }));
     try {
       const r = await syncPull(key);
+      if (r.revoked) { revokedElsewhere(); return; }
       if (!r.found) {
         if (joining) { setSyncKey(null); saveKey(null); saveMeta(null); setSyncStatus({ state: "notfound", at: 0 }); return; }
         busy.current = false;
@@ -383,6 +396,10 @@ export default function App() {
       const { localAt, remoteAt } = meta.current;
       const people = sanitizePeople(r.payload?.people);
       if (r.updatedAt > remoteAt && (joining || r.updatedAt > localAt) && people) {
+        // joining replaces this device's setup: keep it restorable, like opening a shared link
+        const mine = peopleRef.current;
+        const backup = joining && !sameConfig(mine, people) ? mine : null;
+        if (backup) { rememberBackup(backup); setNotice({ kind: "link", backup }); }
         fromRemote.current = true;
         setPeople(people);
         setSel(null);
@@ -413,7 +430,7 @@ export default function App() {
   // pull on start, every 20 s while visible, and when the tab comes back or the network returns
   useEffect(() => {
     if (!syncKey) return;
-    const tick = () => { if (document.visibilityState === "visible") doPull(); };
+    const tick = () => { if (document.visibilityState === "visible") { doPull(); retryRevoke(); } };
     tick();
     const iv = setInterval(tick, 20000);
     document.addEventListener("visibilitychange", tick);
@@ -438,6 +455,25 @@ export default function App() {
     setSyncKey(key);
     setSyncOpen(true);
     doPull(true);
+  };
+  // another device changed the code: this one stops syncing (its own copy stays) and says why
+  const revokedElsewhere = () => {
+    disconnectSync();
+    setSyncStatus({ state: "revoked", at: 0 });
+    setSyncOpen(true);
+  };
+  // lost device or leaked code: move to a new code, then kill the old one on the server
+  const retryRevoke = async () => {
+    const old = pendingRevoke();
+    if (!old) return;
+    try { await syncRevoke(old); savePendingRevoke(null); } catch {}
+  };
+  const rotateSync = async () => {
+    const old = keyRef.current;
+    if (!old) return;
+    savePendingRevoke(old);
+    enableSync();
+    await retryRevoke();
   };
   const disconnectSync = () => {
     saveKey(null);
@@ -850,7 +886,7 @@ export default function App() {
 
       {syncOpen && (
         <SyncSheet syncKey={syncKey} status={syncStatus}
-          onEnable={enableSync} onJoin={joinSync} onDisconnect={disconnectSync} onClose={() => setSyncOpen(false)} />
+          onEnable={enableSync} onJoin={joinSync} onDisconnect={disconnectSync} onRotate={rotateSync} onClose={() => setSyncOpen(false)} />
       )}
 
       {toast && (

@@ -8,7 +8,8 @@ Free tier is plenty (100k writes, 5M reads a day). On the real domain the Worker
 - redirects `http://` and `www.` to `https://<domain>` in one 301;
 - adds HSTS, a strict CSP listing only hosts the page really loads (update it when you add a font
   host, analytics, an API), `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`,
-  `Permissions-Policy`;
+  `Permissions-Policy`. Self-host third-party scripts (e.g. GoatCounter's `count.js` in `public/`)
+  rather than adding their host to `script-src`: any script on the page can read the sync key;
 - sends `X-App-Version: <git sha>` on every response so deploys can wait for the new version.
 
 ## The workflow (`template/.github/workflows/deploy.yml`)

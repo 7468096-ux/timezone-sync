@@ -27,14 +27,22 @@ Why: people want phone + computer in sync but won't create accounts. Design:
 
 - A random 128-bit key (22 url-safe chars) is the whole identity. Pairing: the first device shows a
   QR code + link `SITE/#sync.<key>`; the second scans it and confirms "Connect this device?" (its own
-  data will be replaced). A "I already have a code" field for manual entry.
+  data will be replaced, and stays restorable via "Restore mine"). A "I already have a code" field
+  for manual entry. **Never connect a key without that confirmation** — anyone can send a link, and a
+  planted key sends the victim's later edits to the link's author.
 - The server never sees the key: id = SHA-256("<slug>:id:" + key), payload = AES-GCM with key
   SHA-256("<slug>:enc:" + key), random 12-byte IV. Tests assert the ciphertext doesn't contain the
   plaintext and a wrong key fails.
-- API (`worker/src/index.js`): `GET /v1/s/:id`, `PUT /v1/s/:id {iv,data,updatedAt}`. **Last write
-  wins**: the server only replaces an older copy and answers 409 with the stored time otherwise; the
-  client then pulls. 64 KB limit, `updatedAt` sanity check, daily cron deletes copies untouched for a
-  year. No listing endpoint.
+- API (`worker/src/index.js`): `GET /v1/s/:id`, `PUT /v1/s/:id {iv,data,updatedAt,auth}`,
+  `DELETE /v1/s/:id {auth}`. **Last write wins**: the server only replaces an older copy and answers
+  409 with the stored time otherwise; the client then pulls. 64 KB limit, base64 + `updatedAt` sanity
+  checks, daily cron deletes copies untouched for a year. No listing endpoint.
+- **Writes need a token**, not just the id (the id shows up in server logs): auth = SHA-256("<slug>:auth:"
+  + key); the first write stores SHA-256(auth) in `sync_auth`, later writes must match (403 otherwise).
+- **Change code** (lost phone, leaked link): the device moves to a new key and `DELETE`s the old one.
+  The server erases the copy and keeps a tombstone, so every device still on the old key gets 410,
+  stops syncing and says why. A revoke that fails offline is retried on the next pull.
+- **Rate limit** writes and the counter per IP (`[[ratelimits]]` binding `RATE_LIMIT`, 120/min → 429).
 - Client (`src/lib/useDeviceSync.js`): push 800 ms after an edit; pull on start, every 20 s while the
   tab is visible, on focus and when back online; status "Synced at 14:05 / Syncing… / Offline".
 - Per-device settings stay per device (Timezone Sync: "my time zone" — a phone abroad shows local time).
@@ -51,7 +59,8 @@ anonymous. Hidden when unknown.
 localStorage is per origin, so data doesn't follow a domain change. The old address serves a tiny
 redirect page that reads its localStorage and forwards to `NEW/#migrate.<base64url JSON>` (state,
 settings, language, sync key). The new site applies it **only if it has nothing saved yet**, then
-clears the hash. Keep the old address redirecting forever (links live in chats). Timezone Sync:
+clears the hash. The sync key from it is **not** adopted silently (same reason as pairing): turn it
+into a `#sync.<key>` link that asks first. Keep the old address redirecting forever (links live in chats). Timezone Sync:
 `deploy/moved.html` + `consumeMigration()` in `src/lib/storage.js`.
 
 ## Artifact ↔ website handoff

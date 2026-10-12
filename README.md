@@ -13,7 +13,7 @@ Find the perfect meeting window across timezones.
 - **Any timezone** — popular zones sorted by UTC offset, plus every IANA zone the browser knows
 - **Share via link** — one click copies a URL with your setup encoded. Opening a link keeps a backup of your own setup ("Вернуть мою")
 - **Auto-save** — your configuration persists in localStorage between visits
-- **Zero backend** — pure static site, no server, no database, no auth needed
+- **No accounts** — a static site; the only server part is the optional end-to-end-encrypted device sync
 
 ## Two interfaces
 
@@ -112,9 +112,13 @@ MIT
 "Sync devices" keeps a person's phone and computer on the same setup, without accounts.
 
 - Turning it on creates a random 128-bit key on the device and shows it as a QR code / link (`#sync.<key>`).
-  Opening that link on another device (and confirming) connects it.
+  Opening that link on another device (and confirming) connects it; that device's own setup stays restorable.
 - Data is encrypted on the device (AES-GCM, key derived from the sync key). The server stores only
   `SHA-256(key)` as the record id plus ciphertext, so it can't read names, cities or hours. Last edit wins.
+- Writing needs a token derived from the key (the server keeps only its hash), so the record id alone — e.g. from
+  logs — can't overwrite or lock anyone's data. Writes are rate-limited per IP.
+- **Change code** (lost phone, leaked link): this device moves to a new key and the old one is revoked on the server;
+  every device still on it stops syncing and says why.
 - Devices push edits ~1 s after a change and pull every 20 s while the page is visible, on focus and when back online.
 - Server: `worker/` — a Cloudflare Worker with a D1 (SQLite) table, no listing endpoint, records expire
   a year after the last write. Local run: `npx wrangler d1 execute tz-sync --local --file schema.sql && npx wrangler dev`
@@ -129,7 +133,7 @@ MIT
   is active in the Cloudflare account (it adds the custom-domain routes and checks the live site before switching).
 - **https://7468096-ux.github.io/timezone-sync/** — after the switch, a redirect page (`deploy/moved.html`). Browsers keep
   saved data per address, so it forwards the visitor's saved setup once as `#migrate.…`; the new site applies it only if
-  nothing is saved there yet. Shared links (`#v2.…`, `#sync.…`) are forwarded unchanged.
+  nothing is saved there yet; a sync key in it is only connected after the visitor confirms. Shared links (`#v2.…`, `#sync.…`) are forwarded unchanged.
 - Before the switch, GitHub Pages keeps serving the full site and only the sync API runs on Cloudflare (workers.dev).
 - The domain name is set in `.github/workflows/deploy.yml` (`SITE_DOMAIN`) and `worker/wrangler.toml`.
 

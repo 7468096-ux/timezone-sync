@@ -1,6 +1,7 @@
 /* ── device sync: one secret key per person, shared by their devices ──
    The key never leaves the devices in clear: the server sees id = SHA-256("tz-sync:id:" + key)
-   and AES-GCM ciphertext encrypted with SHA-256("tz-sync:enc:" + key). */
+   and AES-GCM ciphertext encrypted with SHA-256("tz-sync:enc:" + key). Writes also carry
+   auth = SHA-256("tz-sync:auth:" + key), so the id alone (e.g. from server logs) can't overwrite the data. */
 
 // VITE_SYNC_URL: "" → sync off, "/" → API on the site's own domain, "https://…" → separate service
 const RAW_SYNC_URL = import.meta.env?.VITE_SYNC_URL || "";
@@ -39,7 +40,8 @@ async function derive(key) {
   const id = hex(await crypto.subtle.digest("SHA-256", enc.encode(`tz-sync:id:${key}`)));
   const raw = await crypto.subtle.digest("SHA-256", enc.encode(`tz-sync:enc:${key}`));
   const aes = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
-  return { id, aes };
+  const auth = hex(await crypto.subtle.digest("SHA-256", enc.encode(`tz-sync:auth:${key}`)));
+  return { id, aes, auth };
 }
 
 export async function encryptPayload(key, payload) {
@@ -56,26 +58,46 @@ export async function decryptPayload(key, { iv, data }) {
 }
 
 /* ── HTTP ── */
-// → { found: false } | { found: true, updatedAt, payload }
+// → { found: false } | { found: false, revoked: true } | { found: true, updatedAt, payload }
 export async function pull(key, base = SYNC_URL) {
   const { id } = await derive(key);
   const res = await fetch(`${base}/v1/s/${id}`, { cache: "no-store" });
   if (res.status === 404) return { found: false };
+  if (res.status === 410) return { found: false, revoked: true };
   if (!res.ok) throw new Error(`sync ${res.status}`);
   const body = await res.json();
   return { found: true, updatedAt: body.updatedAt, payload: await decryptPayload(key, body) };
 }
 
-// → { ok: true } | { ok: false, stale: true, updatedAt }
+// → { ok: true } | { ok: false, stale: true, updatedAt } | { ok: false, revoked: true }
 export async function push(key, payload, updatedAt, base = SYNC_URL) {
-  const { id } = await derive(key);
-  const body = { ...(await encryptPayload(key, payload)), updatedAt };
+  const { id, auth } = await derive(key);
+  const body = { ...(await encryptPayload(key, payload)), updatedAt, auth };
   const res = await fetch(`${base}/v1/s/${id}`, {
     method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
   if (res.status === 409) return { ok: false, stale: true, updatedAt: (await res.json()).updatedAt };
+  if (res.status === 410) return { ok: false, revoked: true };
   if (!res.ok) throw new Error(`sync ${res.status}`);
   return { ok: true };
+}
+
+// Erases the data on the server and kills the key for good: every device still on it is told so (410).
+export async function revoke(key, base = SYNC_URL) {
+  const { id, auth } = await derive(key);
+  const res = await fetch(`${base}/v1/s/${id}`, {
+    method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auth }),
+  });
+  if (!res.ok) throw new Error(`sync ${res.status}`);
+}
+
+// a revoke that couldn't reach the server yet (offline) is retried later
+const LS_REVOKE = "tz-sync-revoke";
+export function pendingRevoke() {
+  try { const k = localStorage.getItem(LS_REVOKE); return isKey(k) ? k : null; } catch { return null; }
+}
+export function savePendingRevoke(key) {
+  try { key ? localStorage.setItem(LS_REVOKE, key) : localStorage.removeItem(LS_REVOKE); } catch {}
 }
 
 /* ── local state ── */

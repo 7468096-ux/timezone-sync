@@ -1,15 +1,17 @@
 /* ── React hook: keeps `state` in sync across one person's devices ──
    Pushes local edits (debounced), pulls on start, every 20 s while visible, on focus and when back online.
-   Newer copy wins; a device that joins with a key takes the remote copy. */
+   Newer copy wins; a device that joins with a key takes the remote copy (onJoinReplace gets its own copy
+   first, so the app can offer "restore mine"). rotate() moves to a new key and revokes the old one; a device
+   still on a revoked key stops syncing with status "revoked". */
 import { useEffect, useRef, useState } from "react";
 import {
-  SYNC_ENABLED, newKey, pull, push, loadKey, saveKey, loadMeta, saveMeta,
+  SYNC_ENABLED, newKey, pull, push, revoke, pendingRevoke, savePendingRevoke, loadKey, saveKey, loadMeta, saveMeta,
 } from "./sync.js";
 import { EMBED } from "./config.js";
 
 export const SYNC_AVAILABLE = SYNC_ENABLED && !EMBED;
 
-export function useDeviceSync(state, setState, sanitize) {
+export function useDeviceSync(state, setState, sanitize, onJoinReplace = () => {}) {
   const [syncKey, setSyncKey] = useState(() => (SYNC_AVAILABLE ? loadKey() : null));
   const [status, setStatus] = useState({ state: "idle", at: loadMeta().syncedAt || 0 });
   const meta = useRef(loadMeta());
@@ -31,6 +33,7 @@ export function useDeviceSync(state, setState, sanitize) {
       const at = meta.current.localAt || Date.now();
       const r = await push(key, stateRef.current, at);
       if (r.ok) { writeMeta({ localAt: at, remoteAt: at, syncedAt: Date.now() }); setStatus({ state: "ok", at: Date.now() }); }
+      else if (r.revoked) revokedElsewhere();
       else await doPull();
     } catch { setStatus(s => ({ ...s, state: "offline" })); }
   };
@@ -42,6 +45,7 @@ export function useDeviceSync(state, setState, sanitize) {
     setStatus(s => ({ ...s, state: "busy" }));
     try {
       const r = await pull(key);
+      if (r.revoked) { revokedElsewhere(); return; }
       if (!r.found) {
         if (joining) { setSyncKey(null); saveKey(null); saveMeta(null); setStatus({ state: "notfound", at: 0 }); return; }
         busy.current = false;
@@ -51,6 +55,7 @@ export function useDeviceSync(state, setState, sanitize) {
       const { localAt, remoteAt } = meta.current;
       const next = sanitize(r.payload);
       if (r.updatedAt > remoteAt && (joining || r.updatedAt > localAt) && next) {
+        if (joining) onJoinReplace(stateRef.current);
         fromRemote.current = true;
         setState(next);
         writeMeta({ localAt: r.updatedAt, remoteAt: r.updatedAt, syncedAt: Date.now() });
@@ -78,7 +83,7 @@ export function useDeviceSync(state, setState, sanitize) {
 
   useEffect(() => {
     if (!syncKey) return;
-    const tick = () => { if (document.visibilityState === "visible") doPull(); };
+    const tick = () => { if (document.visibilityState === "visible") { doPull(); retryRevoke(); } };
     tick();
     const iv = setInterval(tick, 20000);
     document.addEventListener("visibilitychange", tick);
@@ -106,5 +111,19 @@ export function useDeviceSync(state, setState, sanitize) {
     setSyncKey(null);
     setStatus({ state: "idle", at: 0 });
   };
-  return { syncKey, status, enable, join, disconnect };
+  const revokedElsewhere = () => { disconnect(); setStatus({ state: "revoked", at: 0 }); };
+  const retryRevoke = async () => {
+    const old = pendingRevoke();
+    if (!old) return;
+    try { await revoke(old); savePendingRevoke(null); } catch {}
+  };
+  // lost device or leaked code: new key for this device, the old one dies on the server
+  const rotate = async () => {
+    const old = keyRef.current;
+    if (!old) return;
+    savePendingRevoke(old);
+    enable();
+    await retryRevoke();
+  };
+  return { syncKey, status, enable, join, disconnect, rotate };
 }

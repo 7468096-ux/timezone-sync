@@ -134,15 +134,23 @@ jobs:
           [ "$got" = "$want" ] || { echo "::error::$URL still serves version '${got:-none}', expected $want"; exit 1; }
           grep -q 'id="root"' /tmp/index.html || { echo "::error::$URL/ does not serve the site"; exit 1; }
           id="$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)"
+          auth="$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)"
           code="$(curl -s -o /tmp/get.json -w '%{http_code}' "$URL/v1/s/$id")"
           [ "$code" = 404 ] && grep -q not_found /tmp/get.json || { echo "::error::GET unknown id: HTTP $code"; exit 1; }
           code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Origin: $ORIGIN" -H 'Content-Type: application/json' \
-            -d "{\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"c21va2U=\",\"updatedAt\":$(date +%s)000}" "$URL/v1/s/$id")"
+            -d "{\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"c21va2U=\",\"updatedAt\":$(date +%s)000,\"auth\":\"$auth\"}" "$URL/v1/s/$id")"
           [ "$code" = 200 ] || { echo "::error::PUT: HTTP $code"; exit 1; }
           curl -s "$URL/v1/s/$id" | grep -q '"data":"c21va2U="' || { echo "::error::GET after PUT returned other data"; exit 1; }
           code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Type: application/json' \
-            -d '{"iv":"AAAAAAAAAAAAAAAA","data":"b2xk","updatedAt":1}' "$URL/v1/s/$id")"
+            -d "{\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"b2xk\",\"updatedAt\":1,\"auth\":\"$auth\"}" "$URL/v1/s/$id")"
           [ "$code" = 409 ] || { echo "::error::older write was not rejected: HTTP $code"; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Type: application/json' \
+            -d "{\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"ZXZpbA==\",\"updatedAt\":$(date +%s)001,\"auth\":\"${auth//?/0}\"}" "$URL/v1/s/$id")"
+          [ "$code" = 403 ] || { echo "::error::write with a wrong auth was not rejected: HTTP $code"; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H 'Content-Type: application/json' -d "{\"auth\":\"$auth\"}" "$URL/v1/s/$id")"
+          [ "$code" = 204 ] || { echo "::error::revoke: HTTP $code"; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/v1/s/$id")"
+          [ "$code" = 410 ] || { echo "::error::revoked key still answers HTTP $code"; exit 1; }
           curl -s -D - -o /dev/null -X OPTIONS -H "Origin: $ORIGIN" "$URL/v1/s/$id" | grep -qi "access-control-allow-origin: $ORIGIN" \
             || { echo "::error::CORS header missing for $ORIGIN"; exit 1; }
           code="$(curl -s -o /tmp/stats.json -w '%{http_code}' "$URL/v1/stats")"
@@ -158,7 +166,7 @@ jobs:
               grep -qi "^$h:" <<< "$hdrs" || { echo "::error::missing header $h"; exit 1; }
             done
           fi
-          echo "Live check passed at $URL (site, sync read/write/stale-write, CORS for $ORIGIN, user counter, https + security headers)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Live check passed at $URL (site, sync read/write/stale-write/wrong-auth/revoke, CORS for $ORIGIN, user counter, https + security headers)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare GitHub Pages content
         env:

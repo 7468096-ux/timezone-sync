@@ -20,3 +20,11 @@ CREATE TABLE IF NOT EXISTS counters (
   value INTEGER NOT NULL
 );
 INSERT OR IGNORE INTO counters (name, value) VALUES ('users', 0);
+
+-- Write token per sync key: SHA-256 of auth = SHA-256("tz-sync:auth:" + key), set by the first write.
+-- Kept apart from `sync` so this file stays safe to re-run on every deploy (no ALTER TABLE).
+CREATE TABLE IF NOT EXISTS sync_auth (
+  id         TEXT PRIMARY KEY,   -- same id as in sync
+  auth       TEXT NOT NULL,      -- 64 hex chars
+  revoked_at INTEGER             -- server time (ms) the key was revoked (DELETE); then the id stays dead
+);
