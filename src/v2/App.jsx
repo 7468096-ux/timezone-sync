@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { I18n, useI18n, TzSelect } from "./common.jsx";
 import {
   getTimeInTZ, getOffset, fmtTime, fmtOffset, localHourAt, hoursRange, mod24, mod48,
   slotsFromHours, hoursFromSlots, slotsInSpan, coversSpan, freeForSpan, findCommonSpan, findBestPartialSpan, describeSlots,
@@ -6,10 +7,13 @@ import {
 import { DONATE_URL, MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig, sanitizePeople } from "../lib/config.js";
 import {
   EMBED, consumeMigration, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId, detectTZ,
+  loadCorp, saveCorp, rememberCorpBackup, loadMode, saveMode,
 } from "../lib/storage.js";
+import { sanitizeCorp, encodeCorp, sameCorp, pruneOld, nowIn } from "../lib/corp.js";
+import CorpPlanner from "./Corp.jsx";
 import {
   LANGS, langInfo, detectLang, saveLang, makeT, splitTemplate, fmtUnit, fmtDuration, fmtWeekday, fmtLongDate,
-  ensureFont, makeDefaults, fmtNumber,
+  ensureFont, makeDefaults, makeCorpExample, fmtNumber,
 } from "./i18n.js";
 import { fetchUsers } from "../lib/counter.js";
 import {
@@ -23,11 +27,29 @@ consumeMigration(); // before anything reads saved settings
 const START_LANG = detectLang();
 const exampleTeam = (lang) => sanitizePeople(makeDefaults(lang, detectTZ()));
 const INITIAL = loadInitial(() => exampleTeam(START_LANG));
+
+/* Company mode: saved setup, or a company link (kept like a world link: the old setup stays restorable),
+   or an example team in the visitor's language. The mode itself is remembered. */
+const exampleCorp = (lang) => {
+  const tz = detectTZ();
+  return sanitizeCorp(makeCorpExample(lang, tz, nowIn(tz).date), tz);
+};
+const START = (() => {
+  const saved = loadCorp(detectTZ());
+  let corp = saved, notice = INITIAL.notice, mode = loadMode();
+  if (notice?.kind === "corp") {
+    corp = notice.corp;
+    const backup = saved && !sameCorp(saved, corp) ? saved : null;
+    if (backup) rememberCorpBackup(backup);
+    notice = { kind: "corplink", backup };
+    mode = "corp";
+  } else if (notice?.kind === "link") mode = "world";
+  corp = corp || exampleCorp(START_LANG);
+  return { corp: pruneOld(corp, nowIn(corp.tz).date), notice, mode };
+})();
 const MAX_LEN = 12;
 const SITE_URL = "https://timezone-sync.com.co";
 
-const I18n = createContext({ lang: "en", t: makeT("en") });
-const useI18n = () => useContext(I18n);
 
 const pad = (n) => String(n).padStart(2, "0");
 const fmtHour = (h) => `${pad(mod24(h))}:00`;
@@ -80,30 +102,6 @@ function LangSwitcher({ lang, onChange }) {
         </div>
       )}
     </div>
-  );
-}
-
-/* ── timezone select ── */
-function TzSelect({ id, value, onChange, now, className = "select" }) {
-  const { t } = useI18n();
-  const common = useMemo(() => sortedCommonTZ(now), [now.getUTCHours()]); // offsets only change on hour boundaries
-  const others = useMemo(() => {
-    const known = new Set(common.map(c => c.tz));
-    return allTimeZones().filter(tz => !known.has(tz));
-  }, [common]);
-  const inList = common.some(c => c.tz === value) || others.includes(value);
-  return (
-    <select id={id} className={className} value={value} onChange={e => onChange(e.target.value)}>
-      {!inList && <option value={value}>{cityFor(value)} ({fmtOffset(getOffset(value, now))})</option>}
-      <optgroup label={t("popular")}>
-        {common.map(c => <option key={c.tz} value={c.tz}>{c.label} ({fmtOffset(c.offset)})</option>)}
-      </optgroup>
-      {others.length > 0 && (
-        <optgroup label={t("allZones")}>
-          {others.map(tz => <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>)}
-        </optgroup>
-      )}
-    </select>
   );
 }
 
@@ -324,7 +322,12 @@ export default function App() {
   const i18n = useMemo(() => ({ lang, t }), [lang, t]);
   const [now, setNow] = useState(() => new Date());
   const [people, setPeople] = useState(INITIAL.people);
-  const [notice, setNotice] = useState(INITIAL.notice);
+  const [notice, setNotice] = useState(START.notice);
+  const [planner, setPlannerRaw] = useState(START.mode); // "world" | "corp" — which planner is shown
+  const choosePlanner = (m) => { setPlannerRaw(m); saveMode(m); };
+  const [corp, setCorp] = useState(START.corp);
+  const corpRef = useRef(corp);
+  corpRef.current = corp;
   const [toast, setToast] = useState(null);          // { person, index }
   const [editor, setEditor] = useState(null);        // null | { id } | { isNew: true }
   const [mode, setMode] = useState("view");          // "view": pick time · "edit": toggle hours
@@ -354,6 +357,7 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
   useEffect(() => { savePeople(people); }, [people]);
+  useEffect(() => { saveCorp(corp); }, [corp]);
 
   /* ── device sync: push local edits, pull the other device's ── */
   const meta = useRef(loadMeta());          // { localAt, remoteAt, syncedAt }
@@ -371,7 +375,7 @@ export default function App() {
     setSyncStatus(s => ({ ...s, state: "busy" }));
     try {
       const at = meta.current.localAt || Date.now();
-      const r = await syncPush(key, { people: peopleRef.current }, at);
+      const r = await syncPush(key, { people: peopleRef.current, corp: corpRef.current }, at);
       if (r.ok) { writeMeta({ localAt: at, remoteAt: at, syncedAt: Date.now() }); setSyncStatus({ state: "ok", at: Date.now() }); }
       else if (r.revoked) revokedElsewhere();
       else await doPull(); // the other device was newer
@@ -395,13 +399,17 @@ export default function App() {
       }
       const { localAt, remoteAt } = meta.current;
       const people = sanitizePeople(r.payload?.people);
+      // older devices send people only: their company setup is then left as it is here
+      const remoteCorp = r.payload?.corp ? sanitizeCorp(r.payload.corp, detectTZ()) : null;
       if (r.updatedAt > remoteAt && (joining || r.updatedAt > localAt) && people) {
         // joining replaces this device's setup: keep it restorable, like opening a shared link
         const mine = peopleRef.current;
         const backup = joining && !sameConfig(mine, people) ? mine : null;
         if (backup) { rememberBackup(backup); setNotice({ kind: "link", backup }); }
+        if (joining && remoteCorp && !sameCorp(corpRef.current, remoteCorp)) rememberCorpBackup(corpRef.current);
         fromRemote.current = true;
         setPeople(people);
+        if (remoteCorp) setCorp(remoteCorp);
         setSel(null);
         writeMeta({ localAt: r.updatedAt, remoteAt: r.updatedAt, syncedAt: Date.now() });
         setSyncStatus({ state: "ok", at: Date.now() });
@@ -417,7 +425,7 @@ export default function App() {
     finally { busy.current = false; }
   };
 
-  // every local edit: remember when, push a moment later
+  // every local edit (either planner): remember when, push a moment later
   useEffect(() => {
     if (firstPeople.current) { firstPeople.current = false; return; }
     if (fromRemote.current) { fromRemote.current = false; return; }
@@ -425,7 +433,7 @@ export default function App() {
     if (!keyRef.current) return;
     clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(doPush, 800);
-  }, [people]);
+  }, [people, corp]);
 
   // pull on start, every 20 s while visible, and when the tab comes back or the network returns
   useEffect(() => {
@@ -499,6 +507,16 @@ export default function App() {
     if (!fromLink) return;
     if (fromLink.sync) { if (SYNC_AVAILABLE) setNotice({ kind: "sync", key: fromLink.sync }); return; }
     if (fromLink === "invalid") { setNotice({ kind: "badlink" }); return; }
+    if (fromLink.corp) {
+      const current = corpRef.current;
+      const backup = sameCorp(current, fromLink.corp) ? null : current;
+      if (backup) rememberCorpBackup(backup);
+      setCorp(fromLink.corp);
+      choosePlanner("corp");
+      setNotice({ kind: "corplink", backup });
+      return;
+    }
+    choosePlanner("world");
     const current = peopleRef.current;
     const backup = sameConfig(current, fromLink) ? null : current;
     if (backup) rememberBackup(backup);
@@ -519,6 +537,8 @@ export default function App() {
     // an untouched example team follows the language switch
     const prev = exampleTeam(lang);
     if (prev && sameConfig(people, prev)) setPeople(exampleTeam(code));
+    const prevCorp = exampleCorp(lang);
+    if (prevCorp && sameCorp(corp, prevCorp)) setCorp(exampleCorp(code));
     setLang(code);
     saveLang(code);
   };
@@ -624,8 +644,9 @@ export default function App() {
     try { await navigator.clipboard.writeText(text); flash(what); }
     catch { setNotice({ kind: "copy", text }); }
   };
+  const shareCode = () => (planner === "corp" ? encodeCorp(corp) : encodeConfig(people));
   const share = () => copy(
-    EMBED ? encodeConfig(people) : window.location.origin + window.location.pathname + "#" + encodeConfig(people),
+    EMBED ? shareCode() : window.location.origin + window.location.pathname + "#" + shareCode(),
     "share",
   );
   const inviteText = () => {
@@ -667,6 +688,44 @@ export default function App() {
 
   const editing = editor && !editor.isNew ? people.find(p => p.id === editor.id) : null;
 
+  // share, paste, sync — the same in both planners; links and codes carry the planner they came from
+  const tools = (
+    <>
+      {importText === null ? (
+        <>
+          {SYNC_AVAILABLE && (
+            <button className={`btn small sync-btn${syncKey ? " on" : ""}`} onClick={() => setSyncOpen(true)}>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4 4 0 0 1-.5 9.5H7z" />
+                {syncKey && <path d="M9.5 13.5l2 2 3.5-3.5" />}
+              </svg>
+              {syncKey ? (syncStatus.state === "offline" ? "…" : t("syncOn")) : t("syncBtn")}
+            </button>
+          )}
+          {EMBED && (
+            // the Claude page can't share its storage with the site: hand the setup over in the link
+            <a className="btn small primary" href={`${SITE_URL}/#${shareCode()}`} target="_blank" rel="noopener noreferrer">
+              {t("openOnSite")}
+            </a>
+          )}
+          <button className="btn small" onClick={() => setImportText("")}>{t("pasteCode")}</button>
+          <button className={`btn small${copied === "share" ? " done" : ""}`} onClick={share}>
+            {copied === "share" ? t("copied") : EMBED ? t("copyCode") : t("shareLink")}
+          </button>
+        </>
+      ) : (
+        <div className="import">
+          <input id="import-code" className="field mono" autoFocus value={importText} placeholder={t("pastePh")}
+            onChange={e => setImportText(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") importCode(); if (e.key === "Escape") setImportText(null); }} />
+          <button className="btn small primary" onClick={importCode}>{t("load")}</button>
+          <button className="btn small ghost" onClick={() => setImportText(null)} aria-label={t("cancel")}>✕</button>
+        </div>
+      )}
+    </>
+  );
+
+
   return (
     <I18n.Provider value={i18n}>
     <div className="app">
@@ -675,17 +734,39 @@ export default function App() {
         <div className="brand-eyebrow" lang="en" dir="ltr">Timezone Sync</div>
         <LangSwitcher lang={lang} onChange={chooseLang} />
       </div>
+      <div className="modes" role="tablist" aria-label={t("modesAria")}>
+        <button role="tab" aria-selected={planner === "world"} className={planner === "world" ? "on" : ""} onClick={() => choosePlanner("world")}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" />
+          </svg>
+          {t("modeWorld")}
+        </button>
+        <button role="tab" aria-selected={planner === "corp"} className={planner === "corp" ? "on" : ""} onClick={() => choosePlanner("corp")}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 9h4a1 1 0 0 1 1 1v11M3 21h18M8 8h3M8 12h3M8 16h3" />
+          </svg>
+          {t("modeCorp")}
+        </button>
+      </div>
       <header className="top">
         <div className="brand">
-          <h1>{t("title")}</h1>
+          <h1>{planner === "corp" ? t("corpTitle") : t("title")}</h1>
         </div>
         <div className="clock">
-          <div className="clock-time">{now.toLocaleTimeString("en-GB", { timeZone: refTZ, hour: "2-digit", minute: "2-digit" })}</div>
-          <div className="clock-meta">
-            <span>{fmtLongDate(lang, now, refTZ)}</span>
-            <label htmlFor="ref-tz">· {t("myZone")}</label>
-            <TzSelect id="ref-tz" value={refTZ} onChange={chooseRefTZ} now={now} />
-          </div>
+          <div className="clock-time">{now.toLocaleTimeString("en-GB", { timeZone: planner === "corp" ? corp.tz : refTZ, hour: "2-digit", minute: "2-digit" })}</div>
+          {planner === "corp" ? (
+            <div className="clock-meta">
+              <span>{fmtLongDate(lang, now, corp.tz)}</span>
+              <label htmlFor="corp-tz">· {t("companyZone")}</label>
+              <TzSelect id="corp-tz" value={corp.tz} onChange={tz => setCorp(prev => ({ ...prev, tz }))} now={now} />
+            </div>
+          ) : (
+            <div className="clock-meta">
+              <span>{fmtLongDate(lang, now, refTZ)}</span>
+              <label htmlFor="ref-tz">· {t("myZone")}</label>
+              <TzSelect id="ref-tz" value={refTZ} onChange={chooseRefTZ} now={now} />
+            </div>
+          )}
         </div>
       </header>
 
@@ -694,6 +775,13 @@ export default function App() {
         <div className="notice" role="status">
           <span>{t(EMBED ? "loadedCode" : "loadedLink")}</span>
           {notice.backup && <button className="btn small" onClick={() => { setPeople(notice.backup); setNotice(null); }}>{t("restoreMine")}</button>}
+          <button className="btn small ghost" onClick={() => setNotice(null)}>{t("gotIt")}</button>
+        </div>
+      )}
+      {notice?.kind === "corplink" && (
+        <div className="notice" role="status">
+          <span>{t(EMBED ? "loadedCorpCode" : "loadedCorp")}</span>
+          {notice.backup && <button className="btn small" onClick={() => { setCorp(notice.backup); setNotice(null); }}>{t("restoreMine")}</button>}
           <button className="btn small ghost" onClick={() => setNotice(null)}>{t("gotIt")}</button>
         </div>
       )}
@@ -719,6 +807,9 @@ export default function App() {
         </div>
       )}
 
+      {planner === "corp" ? (
+        <CorpPlanner corp={corp} setCorp={setCorp} now={now} tools={tools} onCopy={copy} copied={copied} />
+      ) : (<>
       {/* the answer */}
       {slot ? (
         <section className={`slot${golden ? "" : " none"}`} aria-live="polite">
@@ -793,37 +884,7 @@ export default function App() {
           <span className="switch-label">{t("halfHours")}</span>
         </button>
         <span className="spacer" />
-        {importText === null ? (
-          <>
-            {SYNC_AVAILABLE && (
-              <button className={`btn small sync-btn${syncKey ? " on" : ""}`} onClick={() => setSyncOpen(true)}>
-                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4 4 0 0 1-.5 9.5H7z" />
-                  {syncKey && <path d="M9.5 13.5l2 2 3.5-3.5" />}
-                </svg>
-                {syncKey ? (syncStatus.state === "offline" ? "…" : t("syncOn")) : t("syncBtn")}
-              </button>
-            )}
-            {EMBED && (
-              // the Claude page can't share its storage with the site: hand the setup over in the link
-              <a className="btn small primary" href={`${SITE_URL}/#${encodeConfig(people)}`} target="_blank" rel="noopener noreferrer">
-                {t("openOnSite")}
-              </a>
-            )}
-            <button className="btn small" onClick={() => setImportText("")}>{t("pasteCode")}</button>
-            <button className={`btn small${copied === "share" ? " done" : ""}`} onClick={share}>
-              {copied === "share" ? t("copied") : EMBED ? t("copyCode") : t("shareLink")}
-            </button>
-          </>
-        ) : (
-          <div className="import">
-            <input id="import-code" className="field mono" autoFocus value={importText} placeholder={t("pastePh")}
-              onChange={e => setImportText(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") importCode(); if (e.key === "Escape") setImportText(null); }} />
-            <button className="btn small primary" onClick={importCode}>{t("load")}</button>
-            <button className="btn small ghost" onClick={() => setImportText(null)} aria-label={t("cancel")}>✕</button>
-          </div>
-        )}
+        {tools}
       </div>
 
       {/* day grid */}
@@ -862,6 +923,7 @@ export default function App() {
           </span>
         </div>
       </div>
+      </>)}
 
       {(users || DONATE_URL) && (
         <footer className="foot">

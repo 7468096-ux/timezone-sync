@@ -118,7 +118,7 @@ export default function App() {
   }, [people]);
 
   const applyLink = (fromLink) => {
-    if (!fromLink || fromLink.sync) return;
+    if (!fromLink || fromLink.sync || fromLink.corp) return; // company links belong to the new interface
     if (fromLink === "invalid") { setNotice({ kind: "badlink" }); return; }
     const current = peopleRef.current;
     const backup = sameConfig(current, fromLink) ? null : current;

@@ -5,3 +5,4 @@ dist
 dist-artifact
 worker/.wrangler
 dist-cf
+verify-out
