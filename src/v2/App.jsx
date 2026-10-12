@@ -867,7 +867,7 @@ export default function App() {
         <footer className="foot">
           {users && <span className="foot-count" title={t("usersTip")}>{t("usersCount", { n: fmtNumber(lang, users) })}</span>}
           <span className="spacer" />
-          {DONATE_URL && <a className="donate" href={DONATE_URL} target="_blank" rel="noopener noreferrer">{t("donate")}</a>}
+          {DONATE_URL && <a className="donate" href={DONATE_URL} target="_blank" rel="noopener noreferrer" title={t("donate")} aria-label={t("donate")}><span aria-hidden="true">☕</span></a>}
         </footer>
       )}
 

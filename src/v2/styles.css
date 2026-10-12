@@ -371,8 +371,8 @@ html:lang(ar) * { letter-spacing: 0 !important; }
 .foot .spacer { flex: 1; }
 .foot-count { font-variant-numeric: tabular-nums; opacity: .8; cursor: default; }
 .donate {
-  color: var(--muted); text-decoration: none; font-size: 13px;
-  border: 1px dashed var(--line-strong); border-radius: 999px; padding: 4px 12px;
+  color: var(--muted); text-decoration: none; font-size: 16px; line-height: 1;
+  border: 1px dashed var(--line-strong); border-radius: 999px; padding: 5px 10px;
   transition: color .15s, border-color .15s;
 }
 .donate:hover { color: var(--accent-ink); border-color: var(--accent-line); border-style: solid; }
