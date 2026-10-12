@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import worker from "../worker/src/index.js";
-import { newKey, push, pull, encryptPayload } from "../src/lib/sync.js";
+import { newKey, push, pull, revoke, encryptPayload } from "../src/lib/sync.js";
 
 function fakeD1() {
   const db = new DatabaseSync(":memory:");
@@ -84,4 +84,28 @@ test("migration link never adopts a sync key silently", async () => {
   assert.equal(store.get("tz-sync-device-key"), undefined, "key not stored");
   assert.ok(store.get("tz-sync-people"), "people still migrated");
   assert.deepEqual(takeHash(), { sync: planted }, "the key becomes an ask-first sync link");
+});
+
+test("changing the code: the old key is erased and stays dead on every device", async () => {
+  const env = makeEnv();
+  useWorker(env);
+  const key = newKey();
+  await push(key, { people: [{ name: "A" }] }, 1000, BASE);
+  const id = createHash("sha256").update(`tz-sync:id:${key}`).digest("hex");
+  const del = (auth) => worker.fetch(new Request(`${BASE}/v1/s/${id}`, { method: "DELETE", body: JSON.stringify({ auth }) }), env);
+  assert.equal((await del("f".repeat(64))).status, 403, "only the key's owner can revoke");
+  await revoke(key, BASE);
+  assert.deepEqual(await pull(key, BASE), { found: false, revoked: true });
+  assert.deepEqual(await push(key, { people: [] }, 5000, BASE), { ok: false, revoked: true }, "an old device can't bring it back");
+  assert.equal(await env.DB.prepare("SELECT 1 FROM sync WHERE id = ?").bind(id).first(), null, "ciphertext erased");
+  await worker.scheduled({}, env);
+  assert.deepEqual(await pull(key, BASE), { found: false, revoked: true }, "the tombstone survives the daily cleanup");
+});
+
+test("pages allow scripts from the site itself only", async () => {
+  const env = makeEnv({ ASSETS: { fetch: async () => new Response("<div id=\"root\"></div>") } });
+  const page = await worker.fetch(new Request(`${BASE}/`), env);
+  const csp = page.headers.get("Content-Security-Policy");
+  assert.match(csp, /script-src 'self';/);
+  assert.ok(!csp.includes("gc.zgo.at"));
 });

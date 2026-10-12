@@ -1,7 +1,8 @@
 // Timezone Sync on Cloudflare: the site (static assets) plus the API.
-//   GET  /v1/s/:id  → { iv, data, updatedAt } | 404
+//   GET  /v1/s/:id  → { iv, data, updatedAt } | 404 | 410 when the key was revoked
 //   PUT  /v1/s/:id  ← { iv, data, updatedAt, auth } → { updatedAt } | 409 { updatedAt } when the stored copy is newer
-//                     | 403 when auth doesn't match the one the first write set
+//                     | 403 when auth doesn't match the one the first write set | 410 after DELETE
+//   DELETE /v1/s/:id ← { auth } → 204   revokes the key for good: data is erased, every device on it gets 410
 //   POST /v1/hello  ← { id } (random per browser) → { users }   counts a browser once
 //   GET  /v1/stats  → { users }
 // :id is SHA-256(sync key) in hex; data is encrypted on the device. No listing endpoint exists.
@@ -30,7 +31,7 @@ function corsHeaders(req, env) {
   const origin = req.headers.get("Origin") || "";
   return {
     "Access-Control-Allow-Origin": allowed.includes(origin) ? origin : allowed[0] || "*",
-    "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, PUT, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
@@ -48,10 +49,11 @@ const json = (body, status, headers, cache = "no-store") =>
     },
   });
 
-// Only what the page actually loads: its own files, Google Fonts, GoatCounter analytics.
+// Only what the page actually loads: its own files (GoatCounter's count.js is self-hosted), Google Fonts,
+// and the GoatCounter endpoint the counter reports to.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' https://gc.zgo.at",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src https://fonts.gstatic.com",
   "img-src 'self' data: https://timezone-sync.goatcounter.com",
@@ -73,6 +75,16 @@ function withSecurityHeaders(res, https) {
   h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
   h.set("X-App-Version", appVersion);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
+// The first write for an id sets its write token (stored as SHA-256); later writes must bring the same one.
+// Setups written before tokens existed get theirs from the next write. → "ok" | "forbidden" | "revoked"
+async function checkAuth(env, id, auth) {
+  const authHash = await sha256hex(auth);
+  await env.DB.prepare("INSERT OR IGNORE INTO sync_auth (id, auth) VALUES (?, ?)").bind(id, authHash).run();
+  const row = await env.DB.prepare("SELECT auth, revoked_at FROM sync_auth WHERE id = ?").bind(id).first();
+  if (row?.auth !== authHash) return "forbidden";
+  return row.revoked_at ? "revoked" : "ok";
 }
 
 async function usersTotal(env) {
@@ -120,7 +132,10 @@ export default {
 
     if (req.method === "GET") {
       const row = await env.DB.prepare("SELECT iv, data, updated_at FROM sync WHERE id = ?").bind(id).first();
-      if (!row) return json({ error: "not_found" }, 404, cors);
+      if (!row) {
+        const gone = await env.DB.prepare("SELECT 1 FROM sync_auth WHERE id = ? AND revoked_at IS NOT NULL").bind(id).first();
+        return gone ? json({ error: "revoked" }, 410, cors) : json({ error: "not_found" }, 404, cors);
+      }
       return json({ iv: row.iv, data: row.data, updatedAt: row.updated_at }, 200, cors);
     }
 
@@ -140,10 +155,9 @@ export default {
         return json({ error: "bad_request" }, 400, cors);
       }
       // the first write for an id sets its write token; later writes must bring the same one
-      const authHash = await sha256hex(auth);
-      await env.DB.prepare("INSERT OR IGNORE INTO sync_auth (id, auth) VALUES (?, ?)").bind(id, authHash).run();
-      const owner = await env.DB.prepare("SELECT auth FROM sync_auth WHERE id = ?").bind(id).first();
-      if (owner?.auth !== authHash) return json({ error: "forbidden" }, 403, cors);
+      const owner = await checkAuth(env, id, auth);
+      if (owner === "revoked") return json({ error: "revoked" }, 410, cors);
+      if (owner !== "ok") return json({ error: "forbidden" }, 403, cors);
       // last write wins: only replace an older copy
       const res = await env.DB.prepare(
         `INSERT INTO sync (id, iv, data, updated_at, written_at) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -158,11 +172,26 @@ export default {
       return json({ updatedAt }, 200, cors);
     }
 
+    if (req.method === "DELETE") {
+      if (!(await allowed(req, env))) return json({ error: "rate_limited" }, 429, cors);
+      let body;
+      try { body = JSON.parse((await req.text()).slice(0, 200)); } catch { return json({ error: "bad_json" }, 400, cors); }
+      if (typeof body?.auth !== "string" || !/^[0-9a-f]{64}$/.test(body.auth)) return json({ error: "bad_request" }, 400, cors);
+      if ((await checkAuth(env, id, body.auth)) === "forbidden") return json({ error: "forbidden" }, 403, cors);
+      // keep a tombstone so devices still on this key can't bring the data back
+      await env.DB.prepare("UPDATE sync_auth SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?").bind(Date.now(), id).run();
+      await env.DB.prepare("DELETE FROM sync WHERE id = ?").bind(id).run();
+      return new Response(null, { status: 204, headers: { ...cors, "Cache-Control": "no-store" } });
+    }
+
     return json({ error: "method_not_allowed" }, 405, cors);
   },
 
   async scheduled(_event, env) {
     await env.DB.prepare("DELETE FROM sync WHERE written_at < ?").bind(Date.now() - EXPIRE_AFTER).run();
-    await env.DB.prepare("DELETE FROM sync_auth WHERE id NOT IN (SELECT id FROM sync)").run();
+    // tokens of expired setups go with them; tombstones of revoked keys are kept for the same year
+    await env.DB.prepare(
+      "DELETE FROM sync_auth WHERE id NOT IN (SELECT id FROM sync) AND (revoked_at IS NULL OR revoked_at < ?)",
+    ).bind(Date.now() - EXPIRE_AFTER).run();
   },
 };

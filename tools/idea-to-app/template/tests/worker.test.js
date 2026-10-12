@@ -33,13 +33,36 @@ test("site: https redirect, security headers, version", async () => {
   assert.equal(page.headers.get("X-App-Version"), "abc1234");
 });
 
+const auth = "b".repeat(64);
+const put = (updatedAt, data, a = auth) =>
+  call(`/v1/s/${id}`, { method: "PUT", body: JSON.stringify({ iv: "AAAA", data, updatedAt, auth: a }) });
+
 test("sync: write, read, reject an older write", async () => {
   assert.equal((await call(`/v1/s/${id}`)).status, 404);
-  const put = (updatedAt, data) => call(`/v1/s/${id}`, { method: "PUT", body: JSON.stringify({ iv: "AAAA", data, updatedAt }) });
   assert.equal((await put(2000, "bmV3")).status, 200);
   assert.equal((await call(`/v1/s/${id}`).then(r => r.json())).data, "bmV3");
   assert.equal((await put(1000, "b2xk")).status, 409);
   assert.equal((await put(1000, "")).status, 400);
+});
+
+test("sync: the id alone can't write; only the key's owner can revoke, and a revoked key stays dead", async () => {
+  assert.equal((await put(3000, "ZXZpbA==", null)).status, 400, "no auth");
+  assert.equal((await put(3000, "ZXZpbA==", "f".repeat(64))).status, 403, "wrong auth");
+  const del = (a) => call(`/v1/s/${id}`, { method: "DELETE", body: JSON.stringify({ auth: a }) });
+  assert.equal((await del("f".repeat(64))).status, 403);
+  assert.equal((await del(auth)).status, 204);
+  assert.equal((await call(`/v1/s/${id}`)).status, 410);
+  assert.equal((await put(9000, "bmV3")).status, 410);
+  await worker.scheduled({}, env);
+  assert.equal((await call(`/v1/s/${id}`)).status, 410, "tombstone survives the cleanup");
+});
+
+test("rate limit: writes answer 429 once the binding says no", async () => {
+  const limited = { ...env, RATE_LIMIT: { limit: async () => ({ success: false }) } };
+  const r = await worker.fetch(new Request(`https://example.app/v1/s/${"c".repeat(64)}`, {
+    method: "PUT", body: JSON.stringify({ iv: "AAAA", data: "bmV3", updatedAt: 1, auth }),
+  }), limited);
+  assert.equal(r.status, 429);
 });
 
 test("counter: each browser once", async () => {

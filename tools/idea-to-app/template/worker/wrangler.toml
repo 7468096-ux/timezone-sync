@@ -25,3 +25,10 @@ database_id = "__D1_ID__"
 # daily cleanup of sync copies nobody has touched for a year
 [triggers]
 crons = ["17 3 * * *"]
+
+# per-IP limit on writes (PUT/DELETE /v1/s/:id) and the counter (POST /v1/hello); a phone or computer
+# editing normally stays far below it (pushes are debounced, at most ~1 per second)
+[[ratelimits]]
+name = "RATE_LIMIT"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
