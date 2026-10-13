@@ -29,7 +29,9 @@ const baseCss = version === "v2"
   ? ""
   : ":root { color-scheme: dark; --bg: #08080a; }\n  * { margin: 0; padding: 0; box-sizing: border-box; }\n  html, body { background: var(--bg); }";
 
-const html = `<title>${version === "v2" ? "Timezone Sync v2" : "Timezone Sync"}</title>
+// the viewport tag makes phones (and phone screenshots in checks) lay out at their real width
+const html = `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>${version === "v2" ? "Timezone Sync v2" : "Timezone Sync"}</title>
 <meta name="description" content="${version === "v2" ? "Find a meeting time that works across time zones" : "Найди общее время для созвона в разных часовых поясах"}" />
 ${fontLinks}
 <style>

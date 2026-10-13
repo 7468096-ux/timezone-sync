@@ -1,6 +1,7 @@
 /* ── persistence + share-link intake, shared by both UI versions ── */
 import { isValidTZ } from "./time.js";
 import { DEFAULTS, normalizeTZ, sanitizePeople, encodeConfig, decodeConfig } from "./config.js";
+import { decodeCorp, sanitizeCorp } from "./corp.js";
 
 const LS_PEOPLE = "tz-sync-people";
 const LS_REF = "tz-sync-ref";
@@ -47,20 +48,26 @@ export function consumeMigration() {
   } catch { return false; }
 }
 
-// Returns null (no hash), "invalid" (broken link), { sync: key } (device-sync link) or the people list.
+// A link or code: people list (world), { corp } (company mode, "c1."), or null
+function decodeAny(code) {
+  if (code.startsWith("c1.")) { const corp = decodeCorp(code); return corp ? { corp } : null; }
+  return decodeConfig(code);
+}
+
+// Returns null (no hash), "invalid" (broken link), { sync: key } (device-sync link), { corp } or the people list.
 export function takeHash() {
   const hash = window.location.hash.slice(1);
   if (!hash) return null;
   try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
   const sync = hash.match(/^sync\.([A-Za-z0-9_-]{22})$/);
   if (sync) return { sync: sync[1] };
-  return decodeConfig(hash) || "invalid";
+  return decodeAny(hash) || "invalid";
 }
 
-// Accepts a bare code or a full link; returns the people list or "invalid"
+// Accepts a bare code or a full link; returns the people list, { corp } or "invalid"
 export function parseCode(raw) {
   const s = raw.trim();
-  return decodeConfig(s.includes("#") ? s.slice(s.indexOf("#") + 1) : s) || "invalid";
+  return decodeAny(s.includes("#") ? s.slice(s.indexOf("#") + 1) : s) || "invalid";
 }
 
 export const sameConfig = (a, b) => encodeConfig(a) === encodeConfig(b);
@@ -77,6 +84,7 @@ export function loadInitial(makeDefaults = () => DEFAULTS) {
   const fallback = () => saved || sanitizePeople(makeDefaults()) || DEFAULTS;
   if (fromLink === "invalid") return { people: fallback(), notice: { kind: "badlink" } };
   if (fromLink?.sync) return { people: fallback(), notice: { kind: "sync", key: fromLink.sync } };
+  if (fromLink?.corp) return { people: fallback(), notice: { kind: "corp", corp: fromLink.corp } };
   if (fromLink) {
     const backup = saved && !sameConfig(saved, fromLink) ? saved : null;
     if (backup) rememberBackup(backup);
@@ -104,3 +112,24 @@ export function saveRefTZ(tz) {
 }
 
 export const nextId = (people) => Math.max(0, ...people.map(p => p.id)) + 1;
+
+/* ── company mode: its own saved setup, backup and the last used mode ── */
+const LS_CORP = "tz-sync-corp";
+const LS_CORP_BACKUP = "tz-sync-corp-backup";
+const LS_MODE = "tz-sync-mode";
+
+export function loadCorp(fallbackTZ) {
+  try { return sanitizeCorp(JSON.parse(localStorage.getItem(LS_CORP)), fallbackTZ); } catch { return null; }
+}
+export function saveCorp(corp) {
+  try { localStorage.setItem(LS_CORP, JSON.stringify(corp)); } catch {}
+}
+export function rememberCorpBackup(corp) {
+  try { localStorage.setItem(LS_CORP_BACKUP, JSON.stringify(corp)); } catch {}
+}
+export function loadMode() {
+  try { return localStorage.getItem(LS_MODE) === "corp" ? "corp" : "world"; } catch { return "world"; }
+}
+export function saveMode(mode) {
+  try { localStorage.setItem(LS_MODE, mode); } catch {}
+}

@@ -15,6 +15,24 @@ Find the perfect meeting window across timezones.
 - **Auto-save** — your configuration persists in localStorage between visits
 - **No accounts** — a static site; the only server part is the optional end-to-end-encrypted device sync
 
+## Two planners: World · Company
+
+A switch at the top of the page (remembered per browser) chooses the planner:
+
+- **World** — people in different time zones with their working hours; finds the shared window.
+- **Company** — a call inside one organisation. Everyone shares the company time zone; what gets in the way is
+  colleagues' meetings. Set the working day, workdays and an optional lunch break (🏢 Company), add colleagues and
+  their meetings — once, every workday or weekly; "All day" for a day off. The card on top shows the nearest time
+  (15-minute steps) when everyone ticked is free, the next free windows and, when nobody-left-out is impossible, the best
+  option with *who* is busy and with what. Days strip for the next two weeks; the day grid has "Pick a time" and
+  "Edit meetings" (drag across a row to draw a meeting). Copy for chat, add to calendar (.ics), share link/code,
+  device sync — the same as in World.
+  Logic: `src/lib/corp.js` (pure, tested in `tests/corp.test.js`); interface: `src/v2/Corp.jsx`.
+  Share format: `#c1.<base64url JSON>` (see the comment in `corp.js`); old `#v2.` links keep opening World.
+
+Browser check: `npm run build:artifact -- v2 && npm run verify` (pinned clock, both planners, desktop + phone,
+dark + light, Arabic RTL, all languages at 390 px, share-code roundtrip; screenshots in `verify-out/`).
+
 ## Two interfaces
 
 - `index.html` — the current interface (`src/v2/`): the answer first (best slot with everyone's local time and a
