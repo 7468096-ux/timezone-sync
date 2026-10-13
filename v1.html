@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Timezone Sync has moved</title>
+<link rel="canonical" href="https://timezone-sync.com.co/">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 16px/1.5 -apple-system, "Segoe UI", sans-serif; padding: 16px; }
+  a { color: #b07a10; }
+</style>
+<script>
+// The app moved to https://timezone-sync.com.co. Browsers keep saved data per address, so this page hands the
+// data saved here (participants, time zone, language, sync key) to the new address once, via
+// "#migrate.…". A link that arrived with its own hash (a shared setup or a sync link) is forwarded as is.
+(function () {
+  var target = "https://timezone-sync.com.co" + (/v1\.html$/.test(location.pathname) ? "/v1" : "/");
+  var hash = location.hash.slice(1);
+  if (hash) {
+    target += "#" + hash;
+  } else {
+    try {
+      var get = function (k) { return localStorage.getItem(k); };
+      var people = get("tz-sync-people");
+      if (people) {
+        var d = { p: JSON.parse(people) };
+        if (get("tz-sync-ref")) d.r = get("tz-sync-ref");
+        if (get("tz-sync-lang")) d.l = get("tz-sync-lang");
+        if (get("tz-sync-device-key")) {
+          d.k = get("tz-sync-device-key");
+          try { d.m = JSON.parse(get("tz-sync-device-meta") || "null"); } catch (e) {}
+        }
+        var b64 = btoa(unescape(encodeURIComponent(JSON.stringify(d))));
+        target += "#migrate." + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+    } catch (e) {}
+  }
+  location.replace(target);
+})();
+</script>
+</head>
+<body>
+  <p>Timezone Sync has moved to <a href="https://timezone-sync.com.co/">timezone-sync.com.co</a>.</p>
+</body>
+</html>
