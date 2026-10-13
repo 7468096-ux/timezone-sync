@@ -147,6 +147,15 @@ async function dragRow(page, row, a, b) {
   await fresh.ctx.close();
 }
 
+/* ── coffee button: only the cup, the phrase as its name ── */
+{
+  const { ctx, page } = await open({ lang: "ru" });
+  const d = page.locator("a.donate");
+  check("coffee button shows only ☕", (await d.innerText()).trim() === "☕", await d.innerText());
+  check("coffee button keeps its name", (await d.getAttribute("aria-label")) === "На кофеёк" && (await d.getAttribute("title")) === "На кофеёк");
+  await ctx.close();
+}
+
 /* ── World planner still works, and the tabs switch ── */
 {
   const { ctx, page } = await open({ planner: "world" });
