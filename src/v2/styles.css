@@ -366,13 +366,16 @@ html:lang(ar) * { letter-spacing: 0 !important; }
 .sync-status.offline { color: var(--bad); }
 .btn:disabled { opacity: .45; cursor: default; }
 
-/* ── footer: user counter + donate, deliberately quiet ── */
+/* ── footer: credits + user counter + donate, deliberately quiet ── */
 .foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 2px 4px; font-size: 12px; color: var(--faint); }
 .foot .spacer { flex: 1; }
+.credits { color: var(--muted); }
+.credits a { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.credits a:hover { color: var(--accent-ink); text-decoration-color: currentColor; }
 .foot-count { font-variant-numeric: tabular-nums; opacity: .8; cursor: default; }
 /* "coffee": only the cup, no frame; a soft circle appears on hover */
 .donate {
-  display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; margin-left: auto;
   text-decoration: none; font-size: 18px; line-height: 1; opacity: .75;
   transition: opacity .15s, background-color .15s;
 }
