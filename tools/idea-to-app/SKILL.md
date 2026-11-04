@@ -37,7 +37,7 @@ Work in this order; each phase has a short checklist in `references/quality-chec
    `node scripts/new-app.mjs --out <dir> --name "<Name>" [--slug s] [--tagline "<meta description>"] [--domain d] [--donate url] [--accent hex]`,
    then in `<dir>`: `npm install && npm test && npm run build`. Without `--domain` the artifact's
    "Open on the website" link stays hidden. `--donate` defaults to the owner's Ko-fi
-   (https://ko-fi.com/aleks_lou) — keep it unless told otherwise. The template already contains:
+   (https://ko-fi.com/aleks_l) — keep it unless told otherwise. The template already contains:
    language switcher + 10 languages, RTL, per-script fonts, light/dark tokens, share link + code
    (with damaged-link notice and "restore mine"), Undo toast, device sync (E2E-encrypted, QR pairing),
    anonymous user counter, donate button, Claude-artifact build with "Open on the website ↗",
