@@ -4,7 +4,7 @@ import {
   getTimeInTZ, getOffset, fmtTime, fmtOffset, localHourAt, hoursRange, mod24, mod48,
   slotsFromHours, hoursFromSlots, slotsInSpan, coversSpan, freeForSpan, findCommonSpan, findBestPartialSpan, describeSlots,
 } from "../lib/time.js";
-import { DONATE_URL, MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig, sanitizePeople } from "../lib/config.js";
+import { AUTHOR, DONATE_URL, MAX_PEOPLE, flagFor, cityFor, allTimeZones, sortedCommonTZ, encodeConfig, sanitizePeople } from "../lib/config.js";
 import {
   EMBED, consumeMigration, loadInitial, savePeople, takeHash, parseCode, sameConfig, rememberBackup, loadRefTZ, saveRefTZ, nextId, detectTZ,
   loadCorp, saveCorp, rememberCorpBackup, loadMode, saveMode,
@@ -925,19 +925,23 @@ export default function App() {
       </div>
       </>)}
 
-      {(users || DONATE_URL) && (
-        <footer className="foot">
-          {users && <span className="foot-count" title={t("usersTip")}>{t("usersCount", { n: fmtNumber(lang, users) })}</span>}
-          <span className="spacer" />
-          {DONATE_URL && (
-            // just the heart; the local phrase stays as the tooltip and the accessible name
-            <a className="donate" href={DONATE_URL} target="_blank" rel="noopener noreferrer"
-              title={t("donate").replace(/^[^\p{L}]+/u, "")} aria-label={t("donate").replace(/^[^\p{L}]+/u, "")}>
-              <span aria-hidden="true">💛</span>
-            </a>
-          )}
+      <footer className="foot">
+        <span className="credits">
+          © 2026 <a href={AUTHOR.site[lang === "ru" ? "ru" : "other"]} target="_blank" rel="noopener noreferrer">{AUTHOR.name[lang === "ru" ? "ru" : "other"]}</a>
+          {AUTHOR.links.map(([label, href]) => (
+            <span key={label}> · <a href={href} target="_blank" rel="noopener noreferrer">{label}</a></span>
+          ))}
+        </span>
+        {users && <span className="foot-count" title={t("usersTip")}>{t("usersCount", { n: fmtNumber(lang, users) })}</span>}
+        <span className="spacer" />
+        {DONATE_URL && (
+          // just the heart; the local phrase stays as the tooltip and the accessible name
+          <a className="donate" href={DONATE_URL} target="_blank" rel="noopener noreferrer"
+            title={t("donate").replace(/^[^\p{L}]+/u, "")} aria-label={t("donate").replace(/^[^\p{L}]+/u, "")}>
+            <span aria-hidden="true">💛</span>
+          </a>
+        )}
         </footer>
-      )}
 
       {editor && (
         <Editor

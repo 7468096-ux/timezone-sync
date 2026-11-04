@@ -73,6 +73,15 @@ export const MAX_PEOPLE = 30;
 // "Buy me a coffee" page (Buy Me a Coffee, Ko-fi, Boosty, PayPal.me…). Empty = the button is hidden.
 // Set it here, or at build time with VITE_DONATE_URL (the deploy workflow passes the DONATE_URL repo variable).
 export const DONATE_URL = import.meta.env?.VITE_DONATE_URL || "https://ko-fi.com/aleks_l";
+// Footer credits, same as on the author's other sites. The name is in Cyrillic for Russian, Latin otherwise.
+export const AUTHOR = {
+  name: { ru: "Александр Лукашкин", other: "Aleksandr Lukashkin" },
+  site: { ru: "https://alexl-470.pages.dev/ru/", other: "https://alexl-470.pages.dev/" },
+  links: [
+    ["Telegram", "https://t.me/lukashkin_a"],
+    ["LinkedIn", "https://www.linkedin.com/in/aleksandr-lukashkin-b32aa2339/"],
+  ],
+};
 const MAX_TEXT = 40;
 
 /* ── validation: everything loaded from URL / localStorage goes through here ── */
