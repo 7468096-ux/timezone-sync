@@ -20,7 +20,7 @@ const out = need("out");
 const name = need("name");
 const slug = (args.slug || name).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 const domain = args.domain || `${slug}.example.com`;   // placeholder for Worker config only
-const DEFAULT_DONATE = "https://ko-fi.com/aleks_lou";
+const DEFAULT_DONATE = "https://ko-fi.com/aleks_l";
 const accent = (args.accent || "f0c050").replace(/^#/, "");
 if (!/^[0-9a-fA-F]{6}$/.test(accent)) { console.error("--accent must be 6 hex digits"); process.exit(1); }
 if (existsSync(out) && readdirSync(out).length) { console.error(`${out} is not empty`); process.exit(1); }

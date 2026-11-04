@@ -930,10 +930,10 @@ export default function App() {
           {users && <span className="foot-count" title={t("usersTip")}>{t("usersCount", { n: fmtNumber(lang, users) })}</span>}
           <span className="spacer" />
           {DONATE_URL && (
-            // just the cup; the local phrase stays as the tooltip and the accessible name
+            // just the heart; the local phrase stays as the tooltip and the accessible name
             <a className="donate" href={DONATE_URL} target="_blank" rel="noopener noreferrer"
               title={t("donate").replace(/^[^\p{L}]+/u, "")} aria-label={t("donate").replace(/^[^\p{L}]+/u, "")}>
-              <span aria-hidden="true">☕</span>
+              <span aria-hidden="true">💛</span>
             </a>
           )}
         </footer>
